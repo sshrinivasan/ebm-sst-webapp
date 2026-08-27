@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+ebm-sst-env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Build / logs
+*.log
+
+# Large Excel data files (user-uploaded at runtime, not source)
+# Note: tests/fixtures/sample_soil_table.xlsm is INTENTIONALLY kept.
+backend/*.xlsm
+backend/*.xlsx

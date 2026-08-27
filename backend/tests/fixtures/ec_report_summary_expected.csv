@@ -1,0 +1,9 @@
+Statistical Parameter,Topsoil 0.0-0.3,Subsoil 0.3-1.0,Subsoil 1.0-1.5,Subsoil 1.5-6.0,Subsoil 6.0-12.0
+n (count),5,11,5,21,11
+Mean,0.27,0.79,1.01,2.0,2.32
+95th Percentile,0.34,2.08,2.05,2.77,3.33
+Maximum,0.35,2.26,2.26,3.23,3.43
+Standard Deviation,0.06,0.7,0.87,0.78,0.76
+Outlier,0.4,2.2,2.74,3.56,3.84
+Rating Category,Good,Good,Good,Good,Fair
+Guideline,2.0,3.0,3.0,3.0,5.0
