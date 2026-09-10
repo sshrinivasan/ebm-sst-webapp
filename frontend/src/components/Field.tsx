@@ -1,6 +1,8 @@
-import type { InputSpec, OptionMap, TableData } from "../types";
+import { useRef } from "react";
+import type { InputSpec, OptionMap, Params, TableData } from "../types";
 import { MultiSelect } from "./MultiSelect";
 import { TableInput } from "./TableInput";
+import { SubareaAssigner } from "./SubareaAssigner";
 
 function optionsFor(spec: InputSpec, options: OptionMap): { value: string; label: string }[] {
   if (spec.choices) return spec.choices.map((c) => ({ value: c, label: c }));
@@ -17,21 +19,35 @@ function optionsFor(spec: InputSpec, options: OptionMap): { value: string; label
 }
 
 export function Field({
-  spec, value, options, onChange,
+  spec, value, options, params, onChange,
 }: {
   spec: InputSpec;
   value: unknown;
   options: OptionMap;
+  params: Params;
   onChange: (v: unknown) => void;
 }) {
   const opts = optionsFor(spec, options);
-  const full = spec.full ?? (spec.control === "multiselect" || spec.control === "file" || spec.control === "table");
+  const full = spec.full ?? (spec.control === "multiselect" || spec.control === "file" || spec.control === "table" || spec.control === "subarea_assigner");
 
   let control: React.ReactNode;
   switch (spec.control) {
     case "table":
       control = (
-        <TableInput columns={spec.columns ?? []} value={(value as Record<string, unknown>[]) ?? []} onChange={onChange} />
+        <TableInput columns={spec.columns ?? []} value={(value as Record<string, unknown>[]) ?? []}
+          options={options} params={params} onChange={onChange} />
+      );
+      break;
+    case "subarea_assigner":
+      const allBoreholes = (options["sample_ids"] as string[] | undefined) ?? [];
+      const initialRef = useRef(value);
+      control = (
+        <SubareaAssigner
+          value={(value as { subarea: string; boreholes: string[] }[]) ?? []}
+          allBoreholes={allBoreholes}
+          defaultValue={(initialRef.current as { subarea: string; boreholes: string[] }[] | undefined) ?? []}
+          onChange={onChange}
+        />
       );
       break;
     case "select":
@@ -43,7 +59,8 @@ export function Field({
       );
       break;
     case "multiselect":
-      const isBorehole = spec.name?.includes("boreholes") || spec.name === "tier1_graph_samples";
+      const isBorehole = spec.name?.includes("boreholes") || spec.name === "tier1_graph_samples"
+        || spec.name?.includes("npp_");
       control = (
         <MultiSelect options={opts} value={(value as string[]) ?? []}
           onChange={onChange} placeholder="None selected"
@@ -54,7 +71,7 @@ export function Field({
       control = (
         <div className="toggle" onClick={() => onChange(!value)}>
           <div className={`toggle-track ${value ? "on" : ""}`}><div className="toggle-knob" /></div>
-          <span className="toggle-text">{value ? "Enabled" : "Disabled"}</span>
+          <span className="toggle-text">{value ? (spec.onLabel ?? "Enabled") : (spec.offLabel ?? "Disabled")}</span>
         </div>
       );
       break;

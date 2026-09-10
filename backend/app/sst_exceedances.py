@@ -26,20 +26,6 @@ sst_exceedance_output_columns = {
     "soluble_ions_chloride_mg_l": "Chloride (mg/L)",
 }
 
-# Temporary guidelines. Will come from ctx.params
-ab_sst_cl_guide_df = pd.DataFrame({
-    "Subarea": ["SA1", "SA2", "SA3", "SA4", "SA5"],
-    "Depth Range": ["1.5-4", "1.5-5", "1.5-5", "1.5-4", "1.5-3"],
-    "Cl Guideline": ["570", "3400", "1100", "2400", "1000"],
-})
-
-ab_sst_na_sar_guidelines_df = pd.DataFrame({
-    "Subarea": ["SA1", "SA2", "SA3", "SA4", "SA5"],
-    "Depth Range": ["1.5-4", "1.5-5", "1.5-5", "1.5-4", "1.5-3"],
-    "Na Guideline": ["820", "7000", "730", "1200", "1000"],
-    "SAR Guideline": ["35", "39", "35", "36", "35"],
-})
-
 ab_rz_guideline_df = pd.DataFrame({
     "subarea": pd.Series(dtype="string"),
     "depth": pd.Series(dtype="string"),
@@ -47,6 +33,7 @@ ab_rz_guideline_df = pd.DataFrame({
 })
 
 # Will be an input parameter in the future. For now, hardcoded to a few sample IDs for testing.
+# TODO: Make this a user input parameter in the frontend (multiselect) and validate against the available sample IDs.
 NPP_APPLIED_SAMPLES = ['BH25-01', 'BH25-02', 'BH25-03']
 
 
@@ -232,10 +219,24 @@ def _build_limit_exceedances(df, guideline_df, compare_cols):
 def sst_exceedances(ctx: Context) -> Context:
     soil_data_filtered = ctx.frames["soil_data_filtered"]
 
+    # File-derived SST Chloride guidelines (Subarea / Depth Range / Cl Guideline),
+    # read from the workbook by the loader's read_sst_guidelines step.
+    sst_cl_guide_default_df = ctx.frames.get("sst_cl_guide_default_df")
+    if sst_cl_guide_default_df is None:
+        ctx.notify("No SST Chloride guideline block found in the workbook.", "warning", "sst_exceedances")
+        sst_cl_guide_default_df = pd.DataFrame(columns=["Subarea", "Depth Range", "Cl Guideline"])
+
+    # File-derived SST Na/SAR guidelines (Subarea / Depth Range / Na Guideline /
+    # SAR Guideline), read from the workbook by the loader's read_sst_guidelines step.
+    sst_na_sar_guide_default_df = ctx.frames.get("sst_na_sar_guide_default_df")
+    if sst_na_sar_guide_default_df is None:
+        ctx.notify("No SST Na/SAR guideline block found in the workbook.", "warning", "sst_exceedances")
+        sst_na_sar_guide_default_df = pd.DataFrame(columns=["Subarea", "Depth Range", "Na Guideline", "SAR Guideline"])
+
     # SST Chloride exceedances: build a list of rows and a modified SCARG df with EC exceedances removed
     ab_chloride_exceedance_rows, ab_scarg_exceedances_df_cl_removed = _build_sst_chloride_exceedances(
-        ab_sst_cl_guide_df, 
-        ctx.frames["scarg_exceedances_df"], 
+        sst_cl_guide_default_df,
+        ctx.frames["scarg_exceedances_df"],
         soil_data_filtered,
         NPP_APPLIED_SAMPLES
     )
@@ -243,8 +244,8 @@ def sst_exceedances(ctx: Context) -> Context:
 
     # SST Na and SAR exceedances: build a list of rows and a modified SCARG df with SAR exceedances removed
     ab_na_exceedances_df, ab_sar_exceedances_df, ab_scarg_exceedances_df_sar_removed = _build_sst_na_sar_exceedances(
-        ab_sst_na_sar_guidelines_df, 
-        ab_scarg_exceedances_df_cl_removed, 
+        sst_na_sar_guide_default_df,
+        ab_scarg_exceedances_df_cl_removed,
         ctx.frames["soil_data_filtered"]
     )
 

@@ -1,7 +1,7 @@
 import type { Schema, RunResult, Params, OptionMap } from "./types";
 
-export async function getSchema(): Promise<Schema> {
-  const r = await fetch("/api/schema");
+export async function getSchema(sstFlag: boolean = true): Promise<Schema> {
+  const r = await fetch(`/api/schema?sst_flag=${sstFlag}`);
   if (!r.ok) throw new Error("Failed to load schema");
   return r.json();
 }

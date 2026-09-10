@@ -1,129 +1,64 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { getSchema, uploadFile, runWorkflow } from "./api";
-import type { Schema, RunResult, Params, InputSpec, OptionMap, NavNode, Notice, TableData } from "./types";
+import { useState } from "react";
+import type { Schema, RunResult, Params, OptionMap, Notice, TableData, InputSpec } from "./types";
 import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
+import { MarkdownNotes } from "./components/MarkdownNotes";
 import {
-  IcSliders, IcTable, IcChart, IcAlert, IcMap, IcUpload, IcFile,
-  IcSpark, IcPlay, IcInbox, IcChevron,
+  IcSliders, IcTable, IcChart, IcAlert, IcMap, IcRefresh, IcInbox, IcChevron,
 } from "./components/icons";
 
 const ICONS: Record<string, (p: { className?: string }) => JSX.Element> = {
   sliders: IcSliders, table: IcTable, chart: IcChart, alert: IcAlert, map: IcMap,
 };
 
-function initialParams(schema: Schema): Params {
-  const p: Params = {};
-  for (const inp of schema.inputs) {
-    // Prefill non-dataset controls from the example seed; leave wells/zones empty.
-    if (["multiselect", "file"].includes(inp.control)) continue;
-    if (inp.control === "toggle") p[inp.name] = inp.example ?? false;
-    else if (inp.example != null) p[inp.name] = inp.example;
-  }
-  return p;
-}
+// Markdown notes shown below the "NPP Test Results" table (reusable via MarkdownNotes).
+const NPP_TEST_RESULTS_NOTES = `* **Test A, Part 1**: Evaluates if there is a decrease in sulphate concentration from 1 mbgs to the surface.
+* **Test A, Part 2 & 3**: Evaluates whether there is any increase in the sulphate trend within 0.3 m of the surface.
+* **Test B**: Evaluates whether the depth of the sulphate maximum is greater than 1 mbgs
+* **Test C**: Evaluates whether the concentration close to surface is less than the "baseline" sulphate concentration from deeper samples below the sulphate maximum.`;
 
-// references are compared `> 0` in the notebook, so null must become 0.
-function cleanParams(p: Params): Params {
-  const out: Params = { ...p };
-  for (const k of Object.keys(out)) {
-    if (k.endsWith("_reference") && (out[k] == null || out[k] === "")) out[k] = 0;
-  }
-  return out;
-}
+// Checklist shown on the "NPP Practitioner Notes" tab (with the toggle below).
+const NPP_PRACTITIONER_NOTES_MARKDOWN = `* There is a minimum of three soil profiles from background areas of the site. = Count Backgrounds (<3 results = Fail)
+* All Background locations are in SIMILAR topographic positions. = Practitioner to check (unchecked = Incomplete)
+* There is at least one Near-APEC profile for each source area. = Practitioner to check (unchecked = Incomplete)
+* All Near-APEC locations are close to the APEC and in the SAME topographic position. = Practitioner to check (unchecked = Incomplete)
+* All soil profiles are undisturbed with chloride concentrations within the background range. = Practitioner to check (unchecked = Incomplete)
+* There are a sufficient number of samples per profile (8 from 0-4.5 m). Fewer samples can be justified. = Practitioner to check (unchecked = Incomplete)
+* The water table depth and measurement type has been confirmed? = List the water table depth and measurement type i.e. 3.0 m (inferred) or 2.0 m (measured). (Less than 3 m inferred or 2 m measured = Fail)
+* When all soil profiles are not definitely downwards, gleying, mottling, and soil moisture observations confirm that the inferred water table depth is 3 m or deeper at all site locations? = Practitioner to check
+* When all soil profiles are not definitely downwards, groundwater measurements have been collected from at least 3 monitoring wells in similar topographic positions as the APEC, not all of which are upgradient, with at least one monitoring event from the spring, resulting in measured water table depths greater than 2 m at each well? = Practitioner to check
+* This profile assessment is imperfect, and all soil profiles should be manually assessed. Potentially ambiguous profile types need to be manually designated as this evaluation cannot do that.`;
 
-export default function App() {
-  const [schema, setSchema] = useState<Schema | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [filename, setFilename] = useState<string>("");
-  const [options, setOptions] = useState<OptionMap>({});
-  const [params, setParams] = useState<Params>({});
-  const [result, setResult] = useState<RunResult | null>(null);
-  const [active, setActive] = useState("input_config");
+/**
+ * Results viewer for the wizard's "Workflows" step.
+ *
+ * Uses a narrow left sidebar listing every workflow (scrollable when there are
+ * many), so the full remaining width is available for tables and charts.
+ */
+export default function ResultsViewer({
+  schema, result, options, params, setParam, running, onRun,
+}: {
+  schema: Schema;
+  result: RunResult | null;
+  options: OptionMap;
+  params: Params;
+  setParam: (name: string, v: unknown) => void;
+  running: boolean;
+  onRun: () => void;
+}) {
+  const [active, setActive] = useState("data");
   const [chartTab, setChartTab] = useState(1);
   const [bgChlorideTab, setBgChlorideTab] = useState(1);
   const [sstChartsSub, setSstChartsSub] = useState<"chloride" | "sodium" | "sar">("chloride");
   const [t1Sub, setT1Sub] = useState<"graphs" | "variable">("graphs");
   const [textureSub, setTextureSub] = useState<"tables" | "profile">("tables");
+  const [nppSub, setNppSub] = useState<"tables" | "charts">("tables");
+  const [nppTable, setNppTable] = useState<string>("npp_test_results");
   const [p95Subarea, setP95Subarea] = useState<string | null>(null);
   const [p95Sub, setP95Sub] = useState<string>("subsoil");
   const [p95View, setP95View] = useState<"data" | "subareas">("data");
   const [outVar, setOutVar] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [uploading, setUploading] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [drag, setDrag] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    getSchema().then((s) => { setSchema(s); setParams(initialParams(s)); });
-  }, []);
-
-  const setParam = (name: string, v: unknown) => setParams((p) => ({ ...p, [name]: v }));
-
-  async function doUpload(file: File) {
-    setUploading(true);
-    try {
-      const res = await uploadFile(file);
-      setToken(res.token); setFilename(res.filename); setOptions(res.options);
-      // preselect every option for multiselects marked prefill:"all" now that
-      // their file-derived option lists are known (e.g. plot all boreholes).
-      const prefilled: Params = { ...params };
-      for (const inp of schema?.inputs ?? []) {
-        if (inp.control === "multiselect" && inp.prefill === "all" && inp.options) {
-          const src = res.options[inp.options];
-          if (Array.isArray(src)) prefilled[inp.name] = src.map(String);
-        }
-        // Seed the subarea assigner from the file-derived borehole_sa_df mapping.
-        if (inp.control === "subarea_assigner" && inp.options) {
-          const src = res.options[inp.options] as TableData | undefined;
-          if (src && Array.isArray(src.rows)) {
-            prefilled[inp.name] = src.rows.map((r) => ({
-              subarea: String(r.Subarea ?? ""),
-              boreholes: String(r.Boreholes ?? "")
-                .split(",").map((s) => s.trim()).filter(Boolean),
-            }));
-          }
-        }
-        // Seed the SST Charts Chloride Plot Config table from the file-derived
-        // subarea default (each row: { subarea, excluded_boreholes: [],
-        // additional_reference_lines: [] }).
-        if (inp.control === "table" && inp.options) {
-          const src = res.options[inp.options] as TableData | undefined;
-          if (src && Array.isArray(src.rows)) {
-            prefilled[inp.name] = src.rows.map((r) => ({
-              subarea: String(r.subarea ?? ""),
-              excluded_boreholes: Array.isArray(r.excluded_boreholes)
-                ? (r.excluded_boreholes as string[])
-                : [],
-              additional_reference_lines: Array.isArray(r.additional_reference_lines)
-                ? (r.additional_reference_lines as string[])
-                : [],
-            }));
-          }
-        }
-      }
-      setParams(prefilled);
-      // auto-run once so the user immediately sees results
-      await doRun(res.token, prefilled);
-    } catch (e) {
-      alert(`Upload failed: ${(e as Error).message}`);
-    } finally { setUploading(false); }
-  }
-
-  async function doRun(tok = token, p = params) {
-    if (!tok) return;
-    setRunning(true);
-    try {
-      const res = await runWorkflow(tok, cleanParams(p));
-      setResult(res);
-      if (res.options) setOptions((o) => ({ ...o, ...res.options }));
-    } catch (e) {
-      alert(`Run failed: ${(e as Error).message}`);
-    } finally { setRunning(false); }
-  }
-
-  if (!schema) return <div className="empty-state" style={{ marginTop: 120 }}><div className="spinner" style={{ margin: "0 auto" }} /></div>;
 
   const tab = schema.tabs.find((t) => t.id === active)!;
   const tabInputs = schema.inputs.filter((i) => i.tab === active && i.control !== "file");
@@ -151,107 +86,52 @@ export default function App() {
   const leafCount = (id: string) =>
     schema.outputs.filter((o) => o.tab === id && result?.outputs[o.var]?.rows.length).length;
 
+  // Flatten nav into a list of workflow tabs (skip input_config — handled by wizard).
+  const workflowTabs = schema.nav.flatMap((node) => {
+    if (node.id === "input_config") return [];
+    if (!node.children) return [{ id: node.id!, title: node.title, icon: node.icon }];
+    return node.children.map((c) => ({ id: c.id!, title: c.title, icon: node.icon }));
+  });
+
   return (
-    <div className="app">
-      {/* ---------- Sidebar ---------- */}
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">SS</div>
-          <div>
-            <div className="brand-name">EBM Soil / SST</div>
-            <div className="brand-sub">Analytical workspace</div>
-          </div>
-        </div>
-        <div className="nav-label">Workspace</div>
-        <nav className="nav">
-          {schema.nav.map((node) => {
-            if (!node.children) {
-              const Icon = ICONS[node.icon ?? "table"] ?? IcTable;
-              const count = leafCount(node.id!);
-              return (
-                <button key={node.id} className={`nav-item ${active === node.id ? "active" : ""}`} onClick={() => setActive(node.id!)}>
-                  <Icon className="nav-ico" />{node.title}
-                  {count > 0 && <span className="nav-badge">{count}</span>}
-                </button>
-              );
-            }
-            // group with children
-            const GIcon = ICONS[node.icon ?? "table"] ?? IcTable;
-            const open = collapsed[node.title] !== true;
-            const childActive = node.children.some((c) => c.id === active);
+    <div className="rv">
+      {/* ---------- Narrow workflow sidebar ---------- */}
+      <aside className="rv-sidebar">
+        <div className="rv-nav-label">Workflows</div>
+        <nav className="rv-nav">
+          {workflowTabs.map((w) => {
+            const Icon = ICONS[w.icon ?? "table"] ?? IcTable;
+            const count = leafCount(w.id);
             return (
-              <div key={node.title}>
-                <button className={`nav-item group ${childActive ? "has-active" : ""}`}
-                  onClick={() => setCollapsed((c) => ({ ...c, [node.title]: open }))}>
-                  <GIcon className="nav-ico" />{node.title}
-                  <IcChevron className={`nav-chev ${open ? "open" : ""}`} />
-                </button>
-                {open && (
-                  <div className="nav-children">
-                    {node.children.map((c) => {
-                      const count = leafCount(c.id!);
-                      return (
-                        <button key={c.id} className={`nav-item child ${active === c.id ? "active" : ""}`} onClick={() => setActive(c.id!)}>
-                          <span className="child-dot" />{c.title}
-                          {count > 0 && <span className="nav-badge">{count}</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              <button key={w.id} className={`rv-nav-item ${active === w.id ? "active" : ""}`} onClick={() => setActive(w.id)}>
+                <Icon className="rv-nav-ico" />
+                <span className="rv-nav-title">{w.title}</span>
+                {count > 0 && <span className="rv-nav-badge">{count}</span>}
+              </button>
             );
           })}
         </nav>
-        <div className="sidebar-foot">
-          {token ? (
-            <div className="file-chip"><span className="dot" /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{filename}</span></div>
-          ) : (
-            <span>No file loaded yet</span>
-          )}
-        </div>
       </aside>
 
       {/* ---------- Main ---------- */}
-      <main className="main">
-        <div className="topbar">
+      <div className="rv-main">
+        <div className="rv-topbar">
           <div>
-            <div className="crumb">Soil / SST{parent ? ` · ${parent.title}` : ""} · {tab.title}</div>
+            <div className="rv-crumb">Workflows{parent ? ` · ${parent.title}` : ""} · {tab.title}</div>
             <h1>{parent ? `${parent.title} — ${tab.title}` : tab.title}</h1>
           </div>
-          <button className="btn btn-primary" disabled={!token || running} onClick={() => doRun()}>
-            {running ? <><span className="spinner" style={{ borderTopColor: "#fff", borderColor: "rgba(255,255,255,0.4)" }} /> Running…</> : <><IcPlay className="" style={{ width: 15, height: 15 }} /> Re-run analysis</>}
+          <button className="btn btn-primary" disabled={running} onClick={onRun}>
+            {running ? <><span className="spinner" style={{ borderTopColor: "#fff", borderColor: "rgba(255,255,255,0.4)" }} /> Running…</> : <><IcRefresh className="" style={{ width: 15, height: 15 }} /> Re-run analysis</>}
           </button>
         </div>
 
-        <div className={`content ${active !== "input_config" ? "wide" : ""}`}>
+        <div className="rv-content">
           <Notices messages={result?.messages} />
-          {/* ===== Input Configuration ===== */}
-          {active === "input_config" && (
-            <div className="stack fade-in">
-              <UploadZone {...{ token, filename, uploading, drag, setDrag, fileInput, doUpload }} />
-              <AiSeam />
-              <div className="card">
-                <div className="card-head"><div className="card-title">Shared inputs</div><div className="card-meta">Apply to every workflow</div></div>
-                <div style={{ padding: 24 }}>
-                  <FormGrid inputs={tabInputs.filter((i) => i.group !== "sst")} params={params} options={options} setParam={setParam} />
-                </div>
-              </div>
-              {Boolean(params.sst_flag) && (
-                <div className="card">
-                  <div className="card-head"><div className="card-title">SST inputs</div><div className="card-meta">Site-specific (SST) analysis</div></div>
-                  <div style={{ padding: 24 }}>
-                    <FormGrid inputs={tabInputs.filter((i) => i.group === "sst")} params={params} options={options} setParam={setParam} />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* ===== TDS Charts (in-page tab row, one graph at a time) ===== */}
           {active === "tds_charts" && (
             <div className="stack fade-in">
-              {!token && <NeedFile />}
+              {!result && <NeedFile />}
               <div className="subtabs">
                 {[1, 2, 3].map((n) => {
                   const param = params[`gw_graph_${n}`] as string | undefined;
@@ -271,7 +151,7 @@ export default function App() {
           {/* ===== Tier 1 Graphs (sub-tabs: standard profiles + variable graphs) ===== */}
           {active === "tier1_graphs" && (
             <div className="stack fade-in">
-              {!token && <NeedFile />}
+              {!result && <NeedFile />}
               <div className="subtabs">
                 <button className={`subtab ${t1Sub === "graphs" ? "active" : ""}`}
                   onClick={() => setT1Sub("graphs")}>Tier 1 Graphs</button>
@@ -281,8 +161,8 @@ export default function App() {
 
               {t1Sub === "graphs" && (
                 <>
-                  {!token && <NeedFile />}
-                  {token && (
+                  {!result && <NeedFile />}
+                  {result && (
                     <div className="card">
                       <div className="card-head"><div className="card-title">Tier 1 Graphs inputs</div></div>
                       <div style={{ padding: 24 }}>
@@ -291,7 +171,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {token && (
+                  {result && (
                     <div className="chart-row">
                       {schema.charts
                         .filter((c) => c.tab === "tier1_graphs" && !c.var.startsWith("tier1_variable_graph"))
@@ -308,7 +188,7 @@ export default function App() {
                 </>
               )}
 
-              {t1Sub === "variable" && token && (
+              {t1Sub === "variable" && result && (
                 <>
                   {[1, 2].map((n) => {
                     const inputs = schema.inputs.filter((i) =>
@@ -336,7 +216,7 @@ export default function App() {
           {/* ===== BG Chloride (sub-tabs: Plot 1/2/3, one at a time) ===== */}
           {active === "bg_chloride" && (
             <div className="stack fade-in">
-              {!token && <NeedFile />}
+              {!result && <NeedFile />}
               <div className="subtabs">
                 {[1, 2, 3].map((n) => (
                   <button key={n} className={`subtab ${bgChlorideTab === n ? "active" : ""}`}
@@ -353,7 +233,7 @@ export default function App() {
           {/* ===== Texture (sub-tabs: depth tables + saturation profile) ===== */}
           {active === "texture" && (
             <div className="stack fade-in">
-              {!token && <NeedFile />}
+              {!result && <NeedFile />}
               <div className="subtabs">
                 <button className={`subtab ${textureSub === "tables" ? "active" : ""}`}
                   onClick={() => setTextureSub("tables")}>Depth Tables</button>
@@ -363,7 +243,7 @@ export default function App() {
 
               {textureSub === "tables" && (
                 <>
-                  {token && allOutputs.length > 1 && (
+                  {result && allOutputs.length > 1 && (
                     <div className="subtabs">
                       {allOutputs.map((o) => (
                         <button key={o.var} className={`subtab ${selectedOut?.var === o.var ? "active" : ""}`}
@@ -373,7 +253,7 @@ export default function App() {
                       ))}
                     </div>
                   )}
-                  {token && shownOutputs.map((o) => (
+                  {result && shownOutputs.map((o) => (
                     <div className="card" key={o.var}>
                       <div className="card-head">
                         <div className="card-title">{o.label}</div>
@@ -387,7 +267,7 @@ export default function App() {
                 </>
               )}
 
-              {textureSub === "profile" && token && (
+              {textureSub === "profile" && result && (
                 <div className="chart-row">
                   <div className="card chart-card">
                     <div className="card-head"><div className="card-title">Saturation Profile</div></div>
@@ -406,10 +286,100 @@ export default function App() {
             </div>
           )}
 
+          {/* ===== 95th Percentile (subarea tabs, each with 4 table sub-tabs + chart) ===== */}
+          {active === "95_percentile" && (
+            <div className="stack fade-in">
+              {!result && <NeedFile />}
+              {tabInputs.filter((i) => i.name !== "npp_practitioner_notes").length > 0 && (
+                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs.filter((i) => i.name !== "npp_practitioner_notes")} params={params} options={options} setParam={setParam} />
+              )}
+              {result && (
+                <P95Panel result={result} options={options} subarea={p95Subarea} setSubarea={setP95Subarea}
+                  sub={p95Sub} setSub={setP95Sub} view={p95View} setView={setP95View} />
+              )}
+            </div>
+          )}
+
+          {/* ===== NPP (page subtabs: Tables | Charts, plus per-table subtabs) ===== */}
+          {active === "npp" && (
+            <div className="stack fade-in">
+              {!result && <NeedFile />}
+              {tabInputs.filter((i) => i.name !== "npp_practitioner_notes").length > 0 && (
+                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs.filter((i) => i.name !== "npp_practitioner_notes")} params={params} options={options} setParam={setParam} />
+              )}
+              {result && options["npp_suitable"] != null && (
+                <div className={`npp-suitability npp-suitability-${String(options["npp_suitable"]).toLowerCase()}`}>
+                  Site NPP Suitability: <b>{String(options["npp_suitable"])}</b>
+                </div>
+              )}
+              {result && (
+                <>
+                  <div className="subtabs">
+                    <button className={`subtab ${nppSub === "tables" ? "active" : ""}`}
+                      onClick={() => setNppSub("tables")}>Tables</button>
+                    <button className={`subtab ${nppSub === "charts" ? "active" : ""}`}
+                      onClick={() => setNppSub("charts")}>Charts</button>
+                  </div>
+
+                  {nppSub === "tables" && (
+                    <>
+                      <div className="subtabs">
+                        {["npp_test_results", "npp_numerical_ref_info", "npp_test_statistics", "npp_marginal_results", "npp_selected_data"].map((varName) => (
+                          <button key={varName} className={`subtab ${nppTable === varName ? "active" : ""}`}
+                            onClick={() => setNppTable(varName)}>
+                            {schema.outputs.find((o) => o.var === varName)?.label ?? varName}
+                          </button>
+                        ))}
+                      </div>
+                      {(() => {
+                        const out = schema.outputs.find((o) => o.var === nppTable);
+                        const data = result.outputs[nppTable];
+                        return (
+                          <div className="card">
+                            <div className="card-head">
+                              <div className="card-title">{nppTable === "npp_test_results" ? "Sulphate Profile Interpretation" : (out?.label ?? nppTable)}</div>
+                              <div className="card-meta">{data?.rows.length ?? 0} rows</div>
+                            </div>
+                            {data
+                              ? <DataTable data={data} />
+                              : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run the analysis to populate.</div>}
+                            {nppTable === "npp_test_results" && (
+                              <>
+                                <MarkdownNotes markdown={NPP_TEST_RESULTS_NOTES} />
+                                <div className="notes-header">Practitioner Notes</div>
+                                <MarkdownNotes markdown={NPP_PRACTITIONER_NOTES_MARKDOWN} />
+                                <div style={{ padding: "8px 20px 20px" }}>
+                                  <FormGrid inputs={tabInputs.filter((i) => i.name === "npp_practitioner_notes")} params={params} options={options} setParam={setParam} />
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
+
+                  {nppSub === "charts" && (
+                    <div className="chart-row">
+                      {schema.charts.filter((c) => c.tab === "npp").map((c) => (
+                        <div className="card chart-card" key={c.var}>
+                          <div className="card-head"><div className="card-title">{c.label}</div></div>
+                          {result.charts[c.var]
+                            ? <img className="chart-img npp-chart-img" src={result.charts[c.var]} alt={c.label} />
+                            : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Select samples and run to render.</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* ===== SST Charts (sub-tabs: SST Chloride / SST Sodium / SST SAR) ===== */}
           {active === "sst_charts" && (
             <div className="stack fade-in">
-              {!token && <NeedFile />}
+              {!result && <NeedFile />}
               <div className="subtabs">
                 <button className={`subtab ${sstChartsSub === "chloride" ? "active" : ""}`}
                   onClick={() => setSstChartsSub("chloride")}>SST Chloride</button>
@@ -422,7 +392,7 @@ export default function App() {
               {sstChartsSub === "chloride" && (
                 <>
                   {/* X Axis Max numeric input for the SST Chloride profile charts */}
-                  {token && (
+                  {result && (
                     <div className="card">
                       <div className="card-head">
                         <div className="card-title">X Axis Max</div>
@@ -436,7 +406,7 @@ export default function App() {
                     </div>
                   )}
                   {/* Additional Guidelines input table */}
-                  {token && (
+                  {result && (
                     <div className="card">
                       <div className="card-head">
                         <div className="card-title">Additional Guidelines</div>
@@ -450,7 +420,7 @@ export default function App() {
                     </div>
                   )}
                   {/* Chloride Plot Config input table (per-subarea excluded boreholes) */}
-                  {token && (
+                  {result && (
                     <div className="card">
                       <div className="card-head">
                         <div className="card-title">Chloride Plot Config</div>
@@ -464,7 +434,7 @@ export default function App() {
                     </div>
                   )}
                   {/* SST Chloride profile charts (one per subarea) */}
-                  {token && (
+                  {result && (
                     <div className="chart-row">
                       {Object.keys(result?.charts ?? {})
                         .filter((k) => k.startsWith("sst_cl_profile_chloride_"))
@@ -491,7 +461,7 @@ export default function App() {
                 </>
               )}
 
-              {sstChartsSub === "sodium" && token && (
+              {sstChartsSub === "sodium" && result && (
                 <div className="card">
                   <div className="card-head"><div className="card-title">SST Sodium</div></div>
                   <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
@@ -500,7 +470,7 @@ export default function App() {
                 </div>
               )}
 
-              {sstChartsSub === "sar" && token && (
+              {sstChartsSub === "sar" && result && (
                 <div className="card">
                   <div className="card-head"><div className="card-title">SST SAR</div></div>
                   <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
@@ -511,38 +481,14 @@ export default function App() {
             </div>
           )}
 
-          {/* ===== 95th Percentile (subarea tabs, each with 4 table sub-tabs + chart) ===== */}
-          {active === "95_percentile" && (
-            <div className="stack fade-in">
-              {!token && <NeedFile />}
-              {tabInputs.length > 0 && (
-                <div className="card">
-                  <div className="card-head"><div className="card-title">{tab.title} inputs</div></div>
-                  <div style={{ padding: 24 }}>
-                    <FormGrid inputs={tabInputs} params={params} options={options} setParam={setParam} />
-                  </div>
-                </div>
-              )}
-              {token && (
-                <P95Panel result={result} options={options} subarea={p95Subarea} setSubarea={setP95Subarea}
-                  sub={p95Sub} setSub={setP95Sub} view={p95View} setView={setP95View} />
-              )}
-            </div>
-          )}
-
           {/* ===== Generic output tabs (TDS Tables, Tier 1, Site Specific, Surfer) ===== */}
-          {active !== "input_config" && active !== "tds_charts" && active !== "tier1_graphs" && active !== "bg_chloride" && active !== "texture" && active !== "95_percentile" && active !== "sst_charts" && (
+          {active !== "tds_charts" && active !== "tier1_graphs" && active !== "bg_chloride" && active !== "texture" && active !== "95_percentile" && active !== "npp" && active !== "sst_charts" && (
             <div className="stack fade-in">
-              {!token && <NeedFile />}
+              {!result && <NeedFile />}
               {tabInputs.length > 0 && (
-                <div className="card">
-                  <div className="card-head"><div className="card-title">{tab.title} inputs</div></div>
-                  <div style={{ padding: 24 }}>
-                    <FormGrid inputs={tabInputs} params={params} options={options} setParam={setParam} />
-                  </div>
-                </div>
+                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs} params={params} options={options} setParam={setParam} />
               )}
-              {token && allOutputs.length > 1 && (
+              {result && allOutputs.length > 1 && (
                 <div className="subtabs">
                   {allOutputs.map((o) => (
                     <button key={o.var} className={`subtab ${selectedOut?.var === o.var ? "active" : ""}`}
@@ -552,7 +498,7 @@ export default function App() {
                   ))}
                 </div>
               )}
-              {token && shownOutputs.map((o) => (
+              {result && shownOutputs.map((o) => (
                 <div className="card" key={o.var}>
                   <div className="card-head">
                     <div className="card-title">{o.label}</div>
@@ -563,7 +509,7 @@ export default function App() {
                     : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run the analysis to populate.</div>}
                 </div>
               ))}
-              {token && tabCharts.length > 0 && (
+              {result && tabCharts.length > 0 && (
                 <div className="chart-row">
                   {tabCharts.map((c) => (
                     <div className="card chart-card" key={c.var}>
@@ -578,7 +524,7 @@ export default function App() {
             </div>
           )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }
@@ -615,6 +561,37 @@ function FormGrid({ inputs, params, options, setParam }: {
         <Field key={inp.name} spec={inp} value={params[inp.name]} options={options} params={params}
           onChange={(v) => setParam(inp.name, v)} />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Collapsible input card for a workflow's parameters. Collapsed by default so
+ * the results (tables/charts) are immediately visible; expand to tweak inputs.
+ */
+function CollapsibleInputs({ title, inputs, params, options, setParam, children }: {
+  title: string; inputs?: InputSpec[]; params: Params; options: OptionMap;
+  setParam: (n: string, v: unknown) => void;
+  children?: React.ReactNode;   // optional custom body (e.g. markdown notes)
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`card rv-inputs ${open ? "open" : ""}`}>
+      <button className="rv-inputs-head" onClick={() => setOpen(!open)}>
+        <span className="rv-inputs-title">{title}</span>
+        <span className="rv-inputs-meta">
+          {open ? "Hide" : "Show"} parameters
+          <IcChevron className={`rv-inputs-chev ${open ? "open" : ""}`} />
+        </span>
+      </button>
+      {open && (
+        <div className="rv-inputs-body">
+          {children}
+          {inputs && inputs.length > 0 && (
+            <FormGrid inputs={inputs} params={params} options={options} setParam={setParam} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -818,56 +795,12 @@ function P95Panel({ result, options, subarea, setSubarea, sub, setSub, view, set
   );
 }
 
-function UploadZone({ token, filename, uploading, drag, setDrag, fileInput, doUpload }: any) {
-  return (
-    <div>
-      <input ref={fileInput} type="file" accept=".xlsm,.xlsx" style={{ display: "none" }}
-        onChange={(e) => e.target.files?.[0] && doUpload(e.target.files[0])} />
-      {token ? (
-        <div className="dropzone loaded" onClick={() => fileInput.current?.click()}>
-          <div className="dz-fileicon"><IcFile className="" style={{ width: 20, height: 20 }} /></div>
-          <div style={{ flex: 1 }}>
-            <div className="dz-title" style={{ fontSize: 14 }}>{filename}</div>
-            <div className="dz-sub">Loaded and analyzed · click to replace</div>
-          </div>
-          <button className="btn btn-ghost">Replace file</button>
-        </div>
-      ) : (
-        <div className={`dropzone ${drag ? "drag" : ""}`}
-          onClick={() => fileInput.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); e.dataTransfer.files?.[0] && doUpload(e.dataTransfer.files[0]); }}>
-          {uploading ? <div className="spinner" style={{ margin: "0 auto 12px" }} /> : <IcUpload className="dz-ico" />}
-          <div className="dz-title">{uploading ? "Analyzing…" : "Drop your Soil Analytical File here"}</div>
-          <div className="dz-sub">{uploading ? "Parsing the workbook and computing options" : "or click to browse · .xlsm"}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AiSeam() {
-  return (
-    <div className="ai-card">
-      <div className="ai-badge"><IcSpark className="" style={{ width: 20, height: 20 }} /></div>
-      <div style={{ flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <h3>Configure with AI</h3><span className="soon-tag">Coming soon</span>
-        </div>
-        <p>Let an assistant ask a few questions about this site and set up wells, zones, and guideline references for you.</p>
-        <button className="btn btn-ai" disabled><IcSpark className="" style={{ width: 15, height: 15 }} /> Set up with assistant</button>
-      </div>
-    </div>
-  );
-}
-
 function NeedFile() {
   return (
     <div className="empty-state">
       <IcInbox className="es-ico" />
       <h3>No data loaded</h3>
-      <p>Upload a Soil Analytical File on the <b>Input Configuration</b> tab to run this workflow.</p>
+      <p>Upload a Soil Analytical File on the <b>Upload</b> step to run this workflow.</p>
     </div>
   );
 }

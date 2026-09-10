@@ -26,7 +26,11 @@ from .tier1_exceedances import tier1_exceedances
 from .sst_exceedances import sst_exceedances
 from .tier1_charts import tier1_charts, tier1_variable_charts
 from .bg_chloride import bg_chloride_charts
+from .sst_charts import seed_sst_chloride, sst_chloride_charts
 from .texture import texture_analysis, saturation_profile
+from .tds import tds_analysis, tds_tests
+from .percentile_95 import ninetyfifth_percentile
+from .npp import npp_analysis, npp_sulphate_tests
 
 def _clean_scalar(v: Any) -> Any:
     if v is None or v is pd.NA:
@@ -68,6 +72,11 @@ def build_context(excel_path: str, params: dict | None = None) -> Context:
 def run(excel_path: str, params: dict | None = None) -> Context:
     ctx = build_context(excel_path, params)
 
+    # Site-specific (SST) workflows are gated by the sst_flag param. When it is
+    # off, the SST analysis steps are skipped entirely (and the corresponding
+    # tabs are filtered from the schema — see manifest.build_schema).
+    sst_enabled = bool(ctx.params.get("sst_flag", True))
+
     ctx = load(ctx)
     ctx = read_sst_guidelines(ctx)
     ctx = drop_duplicate_rows(ctx)
@@ -78,12 +87,21 @@ def run(excel_path: str, params: dict | None = None) -> Context:
     ctx = compute_scarg_guidelines(ctx)
     ctx = filter_borehole_data(ctx)
     ctx = tier1_exceedances(ctx)
-    ctx = sst_exceedances(ctx)
+    if sst_enabled:
+        ctx = npp_analysis(ctx)
+        ctx = npp_sulphate_tests(ctx)
+        ctx = sst_exceedances(ctx)
     ctx = tier1_charts(ctx)
     ctx = tier1_variable_charts(ctx)
     ctx = bg_chloride_charts(ctx)
-    ctx = texture_analysis(ctx)
-    ctx = saturation_profile(ctx)
+    if sst_enabled:
+        ctx = texture_analysis(ctx)
+        ctx = saturation_profile(ctx)
+        ctx = tds_analysis(ctx)
+        ctx = tds_tests(ctx)
+        ctx = ninetyfifth_percentile(ctx)
+        ctx = seed_sst_chloride(ctx)
+        ctx = sst_chloride_charts(ctx)
 
     # future: ctx = texture_split(ctx); ...
 
@@ -109,7 +127,27 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ("all_exceedances_display_df", "site_specific_exceedances"),
         ("bg_chloride_df", "bg_chloride_df"),
         ("texture_analysis", "texture_analysis"),
+        ("tds_data_table", "tds_data_table"),
+        ("tds_grouped_data", "tds_grouped_data"),
+        ("tds_test_results", "tds_test_results"),
+        ("npp_test_results", "npp_test_results"),
+        ("npp_marginal_results", "npp_marginal_results"),
+        ("npp_numerical_ref_info", "npp_numerical_ref_info"),
+        ("npp_test_statistics", "npp_test_statistics"),
+        ("npp_selected_data", "npp_selected_data"),
+        ("borehole_sa_df", "borehole_sa_df"),
+        ("additional_guidelines_df", "additional_guidelines_df"),
+        ("chloride_plot_config", "chloride_plot_config"),
     ]:
         if frame_key in ctx.frames:
             ctx.outputs[out_key] = df_to_records(ctx.frames[frame_key])
+
+    # Per-subarea 95th Percentile tables (dynamic keys, e.g. p95_subsoil_mass_<key>).
+    for frame_key in ctx.frames:
+        if frame_key.startswith("p95_"):
+            ctx.outputs[frame_key] = df_to_records(ctx.frames[frame_key])
+
+    # 95th Percentile subarea data table (displayed inside the 95th Percentile tab).
+    if "percentile_95_subarea_data" in ctx.frames:
+        ctx.outputs["percentile_95_subarea_data"] = df_to_records(ctx.frames["percentile_95_subarea_data"])
     return ctx
