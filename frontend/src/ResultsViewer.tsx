@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Schema, RunResult, Params, OptionMap, Notice, TableData, InputSpec } from "./types";
 import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
+import { DepthSpecificTier1 } from "./components/DepthSpecificTier1";
 import { MarkdownNotes } from "./components/MarkdownNotes";
 import {
   IcSliders, IcTable, IcChart, IcAlert, IcMap, IcRefresh, IcInbox, IcChevron,
@@ -486,7 +487,19 @@ export default function ResultsViewer({
             <div className="stack fade-in">
               {!result && <NeedFile />}
               {tabInputs.length > 0 && (
-                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs} params={params} options={options} setParam={setParam} />
+                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs} params={params} options={options} setParam={setParam}
+                  resetValues={{
+                    // Reset the editable SCARG guidelines table to the original
+                    // computed values from the "SCARG Rating & Guideline Summary"
+                    // output. (The "scarg_guidelines" output reflects the user's
+                    // last accepted edits, so it must not be used as the reset
+                    // source.)
+                    scarg_guidelines: result?.outputs?.["scarg_rating_guideline_summary"]?.rows?.map((r) => ({
+                      Depth: String(r.Depth ?? ""),
+                      "EC Guideline": String(r["EC Guideline"] ?? ""),
+                      "SAR Guideline": String(r["SAR Guideline"] ?? ""),
+                    })),
+                  }} />
               )}
               {result && allOutputs.length > 1 && (
                 <div className="subtabs">
@@ -499,15 +512,19 @@ export default function ResultsViewer({
                 </div>
               )}
               {result && shownOutputs.map((o) => (
-                <div className="card" key={o.var}>
-                  <div className="card-head">
-                    <div className="card-title">{o.label}</div>
-                    <div className="card-meta">{result?.outputs[o.var]?.rows.length ?? 0} rows</div>
+                o.var === "depth_specific_tier1" ? (
+                  <DepthSpecificTier1 result={result} key={o.var} />
+                ) : (
+                  <div className="card" key={o.var}>
+                    <div className="card-head">
+                      <div className="card-title">{o.label}</div>
+                      <div className="card-meta">{result?.outputs[o.var]?.rows.length ?? 0} rows</div>
+                    </div>
+                    {result?.outputs[o.var]
+                      ? <DataTable data={result.outputs[o.var]} />
+                      : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run the analysis to populate.</div>}
                   </div>
-                  {result?.outputs[o.var]
-                    ? <DataTable data={result.outputs[o.var]} />
-                    : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run the analysis to populate.</div>}
-                </div>
+                )
               ))}
               {result && tabCharts.length > 0 && (
                 <div className="chart-row">
@@ -552,13 +569,15 @@ function Notices({ messages }: { messages?: Notice[] }) {
   );
 }
 
-function FormGrid({ inputs, params, options, setParam }: {
+function FormGrid({ inputs, params, options, setParam, resetValues }: {
   inputs: InputSpec[]; params: Params; options: OptionMap; setParam: (n: string, v: unknown) => void;
+  resetValues?: Record<string, unknown>;
 }) {
   return (
     <div className="form-grid">
       {inputs.map((inp) => (
         <Field key={inp.name} spec={inp} value={params[inp.name]} options={options} params={params}
+          resetValue={resetValues?.[inp.name]}
           onChange={(v) => setParam(inp.name, v)} />
       ))}
     </div>
@@ -569,9 +588,10 @@ function FormGrid({ inputs, params, options, setParam }: {
  * Collapsible input card for a workflow's parameters. Collapsed by default so
  * the results (tables/charts) are immediately visible; expand to tweak inputs.
  */
-function CollapsibleInputs({ title, inputs, params, options, setParam, children }: {
+function CollapsibleInputs({ title, inputs, params, options, setParam, resetValues, children }: {
   title: string; inputs?: InputSpec[]; params: Params; options: OptionMap;
   setParam: (n: string, v: unknown) => void;
+  resetValues?: Record<string, unknown>;
   children?: React.ReactNode;   // optional custom body (e.g. markdown notes)
 }) {
   const [open, setOpen] = useState(false);
@@ -588,7 +608,7 @@ function CollapsibleInputs({ title, inputs, params, options, setParam, children 
         <div className="rv-inputs-body">
           {children}
           {inputs && inputs.length > 0 && (
-            <FormGrid inputs={inputs} params={params} options={options} setParam={setParam} />
+            <FormGrid inputs={inputs} params={params} options={options} setParam={setParam} resetValues={resetValues} />
           )}
         </div>
       )}

@@ -22,8 +22,9 @@ from .loader import (
 from .ec_sar_rating import validate_topsoil_depths, compute_ec_sar_ratings
 from .background_guidelines import compute_scarg_guidelines
 from .borehole_stats import filter_borehole_data
-from .tier1_exceedances import tier1_exceedances
+from .tier1_exceedances import tier1_exceedances, depth_specific_tier1_exceedances
 from .sst_exceedances import sst_exceedances
+from .rosc import rosc_exceedances
 from .tier1_charts import tier1_charts, tier1_variable_charts
 from .bg_chloride import bg_chloride_charts
 from .sst_charts import seed_sst_chloride, sst_chloride_charts
@@ -85,8 +86,31 @@ def run(excel_path: str, params: dict | None = None) -> Context:
     ctx = validate_topsoil_depths(ctx)
     ctx = compute_ec_sar_ratings(ctx)
     ctx = compute_scarg_guidelines(ctx)
+    # Editable SCARG guidelines: if the user provided a scarg_guidelines table
+    # (Depth / EC Guideline / SAR Guideline), override the computed defaults so
+    # every downstream consumer (tier1_exceedances, tier1_charts, tds) uses the
+    # user's values. The frontend auto-populates this table from the first run's
+    # computed scarg_guidelines output; the user can then edit and re-run.
+    _user_scarg = ctx.params.get("scarg_guidelines")
+    if _user_scarg:
+        _scarg_df = pd.DataFrame(_user_scarg)
+        _scarg_df = _scarg_df.rename(columns={
+            "Depth": "Depth",
+            "EC Guideline": "EC Guideline",
+            "SAR Guideline": "SAR Guideline",
+        })
+        # Drop fully-blank rows (empty Depth or both guidelines missing).
+        _scarg_df = _scarg_df[
+            _scarg_df["Depth"].astype(str).str.strip().ne("")
+            & _scarg_df["EC Guideline"].notna()
+            & _scarg_df["SAR Guideline"].notna()
+        ]
+        if not _scarg_df.empty:
+            ctx.frames["scarg_guidelines_df"] = _scarg_df[["Depth", "EC Guideline", "SAR Guideline"]].reset_index(drop=True)
     ctx = filter_borehole_data(ctx)
     ctx = tier1_exceedances(ctx)
+    ctx = depth_specific_tier1_exceedances(ctx)
+    ctx = rosc_exceedances(ctx)
     if sst_enabled:
         ctx = npp_analysis(ctx)
         ctx = npp_sulphate_tests(ctx)
@@ -125,6 +149,10 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ("borehole_data", "borehole_data"),
         ("tier1_exceedances_display_df", "tier1_exceedances"),
         ("all_exceedances_display_df", "site_specific_exceedances"),
+        ("max_exceedances_per_subarea_df", "max_exceedances_per_subarea"),
+        ("tier1_shallow_param_summary", "tier1_shallow_param_summary"),
+        ("tier1_deep_param_summary", "tier1_deep_param_summary"),
+        ("tier1_all_param_summary", "tier1_all_param_summary"),
         ("bg_chloride_df", "bg_chloride_df"),
         ("texture_analysis", "texture_analysis"),
         ("tds_data_table", "tds_data_table"),

@@ -6,6 +6,30 @@ from .loader import (
     cleaned_name_to_excel_header_map,
 )
 
+tier1_exceedance_output_columns = {
+    "media": "Media",
+    "sample_id": "Sample ID",
+    "depth_m": "Depth (m)",
+    "date": "Date",
+    "subarea": "Subarea",
+    "apec": "APEC",
+    "excavated_replaced": "Excavated/Replaced",
+    "exceedance_parameter": "Parameter",
+    "label": "Label",
+    "chemical_group": "Chemical Group",
+    "exceedance_value": "Value",
+    "guideline_value": "Tier 1 Guideline",
+    "tier1_bg_guideline": "Tier 1 w BG",
+    "tier2_guideline": "Tier 2 Guideline",
+    "limiting_guideline": "Limiting Guideline",
+    "exceeds_10x_guideline": "10X guideline",
+    "mgmt_limit": "Mgmt Limit",
+    "exceeds_mgmt": "Exceeds Mgmt Limit",
+    "soluble_ions_chloride_mg_kg": "Chloride (mg/kg)",
+    "soluble_ions_chloride_mg_l": "Chloride (mg/L)",
+}
+
+
 def _excavated_replaced(comments):
     text = str(comments).lower()
     return "Yes" if ("excavated" in text or "replaced" in text) else "No"
@@ -245,7 +269,21 @@ def tier1_exceedances(ctx: Context) -> Context:
 
     # Use the SCARG exceedances "ab_scarg_exceedances_df"
     # for EC and SAR, and using the limiting value for all others.
-    exclude_cols_t1 = ["general_inorganics_ec_ds_m", "general_inorganics_sar"]
+    # When SST is enabled, chloride exceedances are handled by the SST workflow
+    # (which uses the mg/kg column), so exclude the mg/kg column from Tier 1;
+    # otherwise exclude the mg/L column.
+    sst_enabled = bool(ctx.params.get("sst_flag", True))
+    if sst_enabled:
+        exclude_cols_t1 = ["general_inorganics_ec_ds_m",
+                           "general_inorganics_sar",
+                           "soluble_ions_chloride_mg_l",
+                           "soluble_ions_sodium_mg_kg"]
+    else:
+        exclude_cols_t1 = ["general_inorganics_ec_ds_m",
+                           "general_inorganics_sar",
+                           "soluble_ions_chloride_mg_kg",
+                           "soluble_ions_sodium_mg_kg"]
+
     # limiting_df has cleaned (snake_case) columns, so test membership directly.
     compare_cols_t1 = [
         c for c in soil_data_filtered.columns
@@ -304,28 +342,6 @@ def tier1_exceedances(ctx: Context) -> Context:
     )
     ab_all_tier1_exceedances_df["exceeds_mgmt"] = ab_all_tier1_exceedances_df.apply(_exceeds_mgmt, axis=1)
     ab_all_tier1_exceedances_df["exceeds_10x_guideline"] = ab_all_tier1_exceedances_df.apply(_exceeds_10x_guideline, axis=1)
-    tier1_exceedance_output_columns = {
-        "media": "Media",
-        "sample_id": "Sample ID",
-        "depth_m": "Depth (m)",
-        "date": "Date",
-        "subarea": "Subarea",
-        "apec": "APEC",
-        "excavated_replaced": "Excavated/Replaced",
-        "exceedance_parameter": "Parameter",
-        "label": "Label",
-        "chemical_group": "Chemical Group",
-        "exceedance_value": "Value",
-        "guideline_value": "Tier 1 Guideline",
-        "tier1_bg_guideline": "Tier 1 w BG",
-        "tier2_guideline": "Tier 2 Guideline",
-        "limiting_guideline": "Limiting Guideline",
-        "exceeds_10x_guideline": "10X guideline",
-        "mgmt_limit": "Mgmt Limit",
-        "exceeds_mgmt": "Exceeds Mgmt Limit",
-        "soluble_ions_chloride_mg_kg": "Chloride (mg/kg)",
-        "soluble_ions_chloride_mg_l": "Chloride (mg/L)",
-    }
 
     ab_all_tier1_exceedances_df_display = ab_all_tier1_exceedances_df[tier1_exceedance_output_columns.keys()].rename(columns=tier1_exceedance_output_columns)
     ab_all_tier1_exceedances_df_display["Parameter"] = ab_all_tier1_exceedances_df_display["Parameter"].map(
@@ -344,3 +360,100 @@ def tier1_exceedances(ctx: Context) -> Context:
 
 
 
+def _parse_guideline_bounds(val):
+    """Return (lower, upper) bounds for a guideline. One-sided guidelines get lower=-inf."""
+    text = str(val).strip()
+    parts = text.split("-")
+    if len(parts) == 2:
+        try:
+            return float(parts[0]), float(parts[1])
+        except ValueError:
+            pass
+    try:
+        return float("-inf"), float(text)
+    except ValueError:
+        return float("-inf"), float("nan")
+
+
+def _deviation_series(values, bounds):
+    """How far each value sits outside its guideline.
+
+    One-sided guidelines reduce to value - limit, so ranking by deviation matches
+    ranking by value. Two-sided guidelines (pH) can be exceeded from below.
+    """
+    values = pd.to_numeric(values, errors="coerce")
+    parsed = bounds.map(_parse_guideline_bounds)
+    lower = parsed.map(lambda b: b[0]).astype(float)
+    upper = parsed.map(lambda b: b[1]).astype(float)
+    deviation = pd.concat([lower - values, values - upper], axis=1).max(axis=1)
+    return deviation.where(values.notna())
+
+
+def _worst_exceedance(param_df, param):
+    """Value furthest outside its guideline, plus that deviation.
+
+    For one-sided guidelines this is the maximum value (deviation = value - limit).
+    For two-sided guidelines (pH) a low value can deviate more than a high one.
+    """
+    values = pd.to_numeric(param_df[param], errors="coerce")
+    if values.notna().sum() == 0:
+        return None, None
+    bounds = param_df.get("guideline_value")
+    if bounds is None:
+        return values.max(), None
+    deviation = _deviation_series(values, bounds)
+    if deviation.notna().sum() == 0:
+        return values.max(), None
+    idx = deviation.idxmax()
+    return values.loc[idx], deviation.loc[idx]
+
+
+param_name_lookup = {
+    "general_inorganics_ph": "pH",
+    "general_inorganics_sar": "SAR",
+    "general_inorganics_ec_ds_m": "EC",
+}
+
+
+def summarize_exceedances(df, cl_col="soluble_ions_chloride_mg_kg", params=None):
+    if params is None:
+        params = ["general_inorganics_ph", "general_inorganics_ec_ds_m", "general_inorganics_sar"]
+    rows = []
+    for param in params:
+        param_df = df[df["exceedance_parameter"] == param]
+        n_exceedances = len(param_df)
+        cl_numeric = pd.to_numeric(param_df[cl_col], errors="coerce")
+        cl_low = param_df[cl_numeric < 100]
+        cl_high = param_df[cl_numeric > 100]
+        worst_low, dev_low = _worst_exceedance(cl_low, param) if len(cl_low) > 0 else (None, None)
+        worst_high, dev_high = _worst_exceedance(cl_high, param) if len(cl_high) > 0 else (None, None)
+        rows.append({
+            "parameter": param_name_lookup[param],
+            "n_exceedances": n_exceedances,
+            "n_exceedances_cl_below_100": len(cl_low),
+            "max_value_cl_le_100": worst_low,
+            "max_value_cl_gt_100": worst_high,
+        })
+    return pd.DataFrame(rows)
+
+def depth_specific_tier1_exceedances(ctx: Context) -> Context:
+    summary_source_df = ctx.frames["tier1_exceedances_df"]
+
+    shallow_df = summary_source_df[(summary_source_df["z"] >= 0) & (summary_source_df["z"] <= 1.5)]
+    deep_df = summary_source_df[summary_source_df["z"] > 1.5]
+
+    def summary_headers(unit="mg/kg"):
+        return {
+            "parameter": "Parameter",
+            "n_exceedances": "# Exceedances",
+            "n_exceedances_cl_below_100": f"# Exceedances with Cl < 100 {unit}",
+            "max_value_cl_le_100": f"Maximum with Cl <= 100 {unit}",
+            "max_value_cl_gt_100": f"Maximum with Cl > 100 {unit}",
+        }
+
+    # Tier 1 exceedances per depth category (shallow vs deep) and overall summary
+    ctx.frames["tier1_shallow_param_summary"] = summarize_exceedances(shallow_df).rename(columns=summary_headers("mg/kg"))
+    ctx.frames["tier1_deep_param_summary"] = summarize_exceedances(deep_df).rename(columns=summary_headers("mg/kg"))
+    ctx.frames["tier1_all_param_summary"] = summarize_exceedances(summary_source_df, cl_col="soluble_ions_chloride_mg_l").rename(columns=summary_headers("mg/l"))
+
+    return ctx

@@ -24,3 +24,7 @@ dist/
 # Note: tests/fixtures/sample_soil_table.xlsm is INTENTIONALLY kept.
 backend/*.xlsm
 backend/*.xlsx
+
+# Excel temp/lock files
+~$*.xlsm
+~$*.xlsx

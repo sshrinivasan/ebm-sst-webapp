@@ -36,6 +36,8 @@ OUTPUTS = [
     {"var": "borehole_data", "label": "Borehole Data", "tab": "borehole"},
     {"var": "tier1_exceedances", "label": "Tier 1", "tab": "exceedances"},
     {"var": "site_specific_exceedances", "label": "Site-Specific", "tab": "exceedances"},
+    {"var": "max_exceedances_per_subarea", "label": "Max Exceedances per Subarea", "tab": "exceedances"},
+    {"var": "depth_specific_tier1", "label": "Depth Specific Tier 1 Exceedances", "tab": "exceedances"},
     {"var": "npp_test_results", "label": "Sulphate Profile Interpretation", "tab": "npp"},
     {"var": "npp_numerical_ref_info", "label": "NPP Numerical Reference Info", "tab": "npp"},
     {"var": "npp_test_statistics", "label": "NPP Test Statistics", "tab": "npp"},

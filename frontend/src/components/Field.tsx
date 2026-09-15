@@ -19,13 +19,14 @@ function optionsFor(spec: InputSpec, options: OptionMap): { value: string; label
 }
 
 export function Field({
-  spec, value, options, params, onChange,
+  spec, value, options, params, onChange, resetValue,
 }: {
   spec: InputSpec;
   value: unknown;
   options: OptionMap;
   params: Params;
   onChange: (v: unknown) => void;
+  resetValue?: unknown;
 }) {
   const opts = optionsFor(spec, options);
   const full = spec.full ?? (spec.control === "multiselect" || spec.control === "file" || spec.control === "table" || spec.control === "subarea_assigner");
@@ -94,7 +95,14 @@ export function Field({
 
   return (
     <div className={`field ${full ? "full" : ""}`}>
-      <label>{spec.label}</label>
+      <div className="field-label-row">
+        <label>{spec.label}</label>
+        {resetValue !== undefined && (
+          <button type="button" className="btn-reset" onClick={() => onChange(resetValue)}>
+            Reset
+          </button>
+        )}
+      </div>
       {control}
     </div>
   );

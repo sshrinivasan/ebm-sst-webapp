@@ -3,6 +3,7 @@ import { getSchema, uploadFile, runWorkflow } from "./api";
 import type { Schema, RunResult, Params, InputSpec, OptionMap, NavNode, Notice, TableData } from "./types";
 import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
+import { DepthSpecificTier1 } from "./components/DepthSpecificTier1";
 import {
   IcSliders, IcTable, IcChart, IcAlert, IcMap, IcUpload, IcFile,
   IcSpark, IcPlay, IcInbox, IcChevron,
@@ -59,7 +60,15 @@ export default function App() {
     getSchema().then((s) => { setSchema(s); setParams(initialParams(s)); });
   }, []);
 
-  const setParam = (name: string, v: unknown) => setParams((p) => ({ ...p, [name]: v }));
+  const setParam = (name: string, v: unknown) => {
+    // Experimental-feature guard: turning SST on requires confirmation.
+    if (name === "sst_flag" && Boolean(v) && !Boolean(params.sst_flag)) {
+      if (!window.confirm("Site-specific (SST) analysis is an experimental feature. Are you sure you want to continue?")) {
+        return;
+      }
+    }
+    setParams((p) => ({ ...p, [name]: v }));
+  };
 
   async function doUpload(file: File) {
     setUploading(true);
@@ -553,15 +562,19 @@ export default function App() {
                 </div>
               )}
               {token && shownOutputs.map((o) => (
-                <div className="card" key={o.var}>
-                  <div className="card-head">
-                    <div className="card-title">{o.label}</div>
-                    <div className="card-meta">{result?.outputs[o.var]?.rows.length ?? 0} rows</div>
+                o.var === "depth_specific_tier1" ? (
+                  <DepthSpecificTier1 result={result} key={o.var} />
+                ) : (
+                  <div className="card" key={o.var}>
+                    <div className="card-head">
+                      <div className="card-title">{o.label}</div>
+                      <div className="card-meta">{result?.outputs[o.var]?.rows.length ?? 0} rows</div>
+                    </div>
+                    {result?.outputs[o.var]
+                      ? <DataTable data={result.outputs[o.var]} />
+                      : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run the analysis to populate.</div>}
                   </div>
-                  {result?.outputs[o.var]
-                    ? <DataTable data={result.outputs[o.var]} />
-                    : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run the analysis to populate.</div>}
-                </div>
+                )
               ))}
               {token && tabCharts.length > 0 && (
                 <div className="chart-row">

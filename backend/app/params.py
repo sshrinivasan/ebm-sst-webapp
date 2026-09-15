@@ -64,8 +64,25 @@ PARAMS: list[dict] = [
     {"name": "subarea_assignments", "label": "Subarea / Borehole assignments",
      "kind": "table", "control": "subarea_assigner", "tab": "95_percentile",
      "options": "borehole_sa_df", "full": True},
+    # Exceedances tab: editable SCARG EC/SAR guidelines. Defaults are populated
+    # from the first run's computed scarg_guidelines output (see WizardApp/App
+    # doRun); the user can edit Depth / EC Guideline / SAR Guideline and re-run
+    # to recompute all exceedances from the edited values.
+    {"name": "scarg_guidelines", "label": "SCARG Guidelines (editable)",
+     "kind": "table", "control": "table", "tab": "exceedances",
+     "columns": [
+         {"key": "Depth", "label": "Depth", "control": "text"},
+         {"key": "EC Guideline", "label": "EC Guideline", "control": "number"},
+         {"key": "SAR Guideline", "label": "SAR Guideline", "control": "number"},
+     ],
+     "default": []},
+    # Exceedances tab: ROSC grouping column. Consumed by rosc_exceedances to
+    # group the max-exceedance-per-group table by either APEC or Subarea.
+    {"name": "rosc_grouping_column", "label": "ROSC Grouping Column",
+     "kind": "str", "control": "select", "tab": "exceedances",
+     "choices": ["APEC", "Subarea"], "default": "Subarea"},
     {"name": "sst_flag", "label": "Site-specific (SST) enabled",
-     "kind": "bool", "control": "toggle", "tab": "input_config", "default": True},
+     "kind": "bool", "control": "toggle", "tab": "input_config", "default": False},
     {"name": "topsoil_depths", "label": "Topsoil / Subsoil depth intervals",
      "kind": "table", "control": "table", "tab": "input_config",
      "columns": [

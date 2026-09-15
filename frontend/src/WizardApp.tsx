@@ -61,6 +61,12 @@ export default function WizardApp() {
   }, []);
 
   const setParam = (name: string, v: unknown) => {
+    // Experimental-feature guard: turning SST on requires confirmation.
+    if (name === "sst_flag" && Boolean(v) && !Boolean(params.sst_flag)) {
+      if (!window.confirm("Site-specific (SST) analysis is an experimental feature. Are you sure you want to continue?")) {
+        return;
+      }
+    }
     setParams((p) => ({ ...p, [name]: v }));
     // Option A: when the SST toggle changes, re-fetch the schema so the
     // SST tabs/outputs/charts/params appear or disappear immediately.
@@ -130,6 +136,21 @@ export default function WizardApp() {
       const res = await runWorkflow(tok, cleanParams(p));
       setResult(res);
       if (res.options) setOptions((o) => ({ ...o, ...res.options }));
+      // Auto-populate the editable SCARG guidelines table from the computed
+      // result (Option 1). Only fill it if the user hasn't already set it, so
+      // their edits survive re-runs.
+      const scargOut = res.outputs?.["scarg_guidelines"];
+      const current = p.scarg_guidelines;
+      if (scargOut?.rows?.length && (!Array.isArray(current) || current.length === 0)) {
+        setParams((prev) => ({
+          ...prev,
+          scarg_guidelines: scargOut.rows.map((r) => ({
+            Depth: String(r.Depth ?? ""),
+            "EC Guideline": String(r["EC Guideline"] ?? ""),
+            "SAR Guideline": String(r["SAR Guideline"] ?? ""),
+          })),
+        }));
+      }
     } catch (e) {
       alert(`Run failed: ${(e as Error).message}`);
     } finally { setRunning(false); }

@@ -28,6 +28,8 @@ def _rows(df):
 
 
 def test_tier1_exceedances_match():
-    got = run(str(SAMPLE), {"sheet_name": "Soil Table"}).frames["tier1_exceedances_df"]
+    # SST OFF: Tier 1 reports the mg/L chloride column (the SST workflow handles
+    # mg/kg when enabled), so the reference export is generated with sst_flag off.
+    got = run(str(SAMPLE), {"sheet_name": "Soil Table", "sst_flag": False}).frames["tier1_exceedances_df"]
     exp = pd.read_csv(EXPECTED)
     assert _rows(got) == _rows(exp)
