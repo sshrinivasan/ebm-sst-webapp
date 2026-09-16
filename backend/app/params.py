@@ -89,7 +89,7 @@ PARAMS: list[dict] = [
     # table. Both or none can be selected (standard multiselect).
     {"name": "show_chloride_exceedances", "label": "Show Chloride Exceedances",
      "kind": "list", "control": "multiselect", "tab": "exceedances",
-     "choices": ["mg/L", "mg/kg"], "default": ["mg/L"]},
+     "choices": ["mg/L", "mg/kg"], "default": ["mg/L"], "full": False},
     {"name": "sst_flag", "label": "Site-specific (SST) enabled",
      "kind": "bool", "control": "toggle", "tab": "input_config", "default": False},
     {"name": "topsoil_depths", "label": "Topsoil / Subsoil depth intervals",

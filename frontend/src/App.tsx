@@ -4,6 +4,7 @@ import type { Schema, RunResult, Params, InputSpec, OptionMap, NavNode, Notice, 
 import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
 import { DepthSpecificTier1 } from "./components/DepthSpecificTier1";
+import { FormGrid, CollapsibleInputs } from "./components/CollapsibleInputs";
 import {
   IcSliders, IcTable, IcChart, IcAlert, IcMap, IcUpload, IcFile,
   IcSpark, IcPlay, IcInbox, IcChevron,
@@ -44,7 +45,8 @@ export default function App() {
   const [result, setResult] = useState<RunResult | null>(null);
   const [active, setActive] = useState("input_config");
   const [chartTab, setChartTab] = useState(1);
-  const [bgChlorideTab, setBgChlorideTab] = useState(1);
+  const [bgChlorideSub, setBgChlorideSub] = useState<"data" | "charts">("data");
+  const [bgChloridePlot, setBgChloridePlot] = useState(1);
   const [sstChartsSub, setSstChartsSub] = useState<"chloride" | "sodium" | "sar">("chloride");
   const [t1Sub, setT1Sub] = useState<"graphs" | "variable">("graphs");
   const [textureSub, setTextureSub] = useState<"tables" | "profile">("tables");
@@ -362,20 +364,43 @@ export default function App() {
             </div>
           )}
 
-          {/* ===== BG Chloride (sub-tabs: Plot 1/2/3, one at a time) ===== */}
+          {/* ===== BG Chloride (sub-tabs: Data table + Charts) ===== */}
           {active === "bg_chloride" && (
             <div className="stack fade-in">
               {!token && <NeedFile />}
               <div className="subtabs">
-                {[1, 2, 3].map((n) => (
-                  <button key={n} className={`subtab ${bgChlorideTab === n ? "active" : ""}`}
-                    onClick={() => setBgChlorideTab(n)}>
-                    Plot {n}
-                  </button>
-                ))}
+                <button className={`subtab ${bgChlorideSub === "data" ? "active" : ""}`}
+                  onClick={() => setBgChlorideSub("data")}>BG Chloride Data</button>
+                <button className={`subtab ${bgChlorideSub === "charts" ? "active" : ""}`}
+                  onClick={() => setBgChlorideSub("charts")}>BG Chloride Charts</button>
               </div>
-              <BgChloridePanel n={bgChlorideTab} schema={schema} params={params} options={options}
-                setParam={setParam} result={result} />
+
+              {bgChlorideSub === "data" && token && (
+                <div className="card">
+                  <div className="card-head">
+                    <div className="card-title">Background Chloride</div>
+                    <div className="card-meta">{result?.outputs["bg_chloride_df"]?.rows.length ?? 0} rows</div>
+                  </div>
+                  {result?.outputs["bg_chloride_df"]
+                    ? <DataTable data={result.outputs["bg_chloride_df"]} />
+                    : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run the analysis to populate.</div>}
+                </div>
+              )}
+
+              {bgChlorideSub === "charts" && (
+                <>
+                  <div className="subtabs">
+                    {[1, 2, 3].map((n) => (
+                      <button key={n} className={`subtab ${bgChloridePlot === n ? "active" : ""}`}
+                        onClick={() => setBgChloridePlot(n)}>
+                        Plot {n}
+                      </button>
+                    ))}
+                  </div>
+                  <BgChloridePanel n={bgChloridePlot} schema={schema} params={params} options={options}
+                    setParam={setParam} result={result} />
+                </>
+              )}
             </div>
           )}
 
@@ -639,19 +664,6 @@ function Notices({ messages }: { messages?: Notice[] }) {
   );
 }
 
-function FormGrid({ inputs, params, options, setParam }: {
-  inputs: InputSpec[]; params: Params; options: OptionMap; setParam: (n: string, v: unknown) => void;
-}) {
-  return (
-    <div className="form-grid">
-      {inputs.map((inp) => (
-        <Field key={inp.name} spec={inp} value={params[inp.name]} options={options} params={params}
-          onChange={(v) => setParam(inp.name, v)} />
-      ))}
-    </div>
-  );
-}
-
 function GraphPanel({ n, schema, params, options, setParam, result }: {
   n: number; schema: Schema; params: Params; options: OptionMap;
   setParam: (name: string, v: unknown) => void; result: RunResult | null;
@@ -699,29 +711,15 @@ function BgChloridePanel({ n, schema, params, options, setParam, result }: {
   const inputs = schema.inputs.filter((i) => order.includes(i.name))
     .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
   const chart = result?.charts[`bg_chloride_plot_${n}`];
-  const table = result?.outputs[`bg_chloride_df`];
 
   return (
-    <>
-      <div className="card">
-        <div className="card-head"><div className="card-title">Plot {n}</div></div>
-        <div style={{ padding: 20, borderBottom: "1px solid var(--line-2)" }}>
-          <FormGrid inputs={inputs} params={params} options={options} setParam={setParam} />
-        </div>
-        {chart
-          ? <img className="chart-img" src={chart} alt={`Plot ${n}`} />
-          : <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render the chart.</div>}
-      </div>
-      {table && (
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title">Background Chloride</div>
-            <div className="card-meta">{table.rows.length} rows</div>
-          </div>
-          <DataTable data={table} />
-        </div>
-      )}
-    </>
+    <div className="card">
+      <div className="card-head"><div className="card-title">Plot {n}</div></div>
+      <CollapsibleInputs title={`Plot ${n} Config`} inputs={inputs} params={params} options={options} setParam={setParam} />
+      {chart
+        ? <img className="chart-img" src={chart} alt={`Plot ${n}`} />
+        : <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render the chart.</div>}
+    </div>
   );
 }
 
