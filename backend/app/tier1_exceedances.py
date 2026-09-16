@@ -267,28 +267,22 @@ def tier1_exceedances(ctx: Context) -> Context:
     # EC and SAR exceedances using SCARG guidelines
     ab_scarg_exceedances_df = _build_scarg_exceedances(ctx.frames["scarg_guidelines_df"], ctx.frames["soil_data_filtered"]) 
 
-    # Use the SCARG exceedances "ab_scarg_exceedances_df"
-    # for EC and SAR, and using the limiting value for all others.
-    # When SST is enabled, chloride exceedances are handled by the SST workflow
-    # (which uses the mg/kg column), so exclude the mg/kg column from Tier 1;
-    # otherwise exclude the mg/L column.
-    sst_enabled = bool(ctx.params.get("sst_flag", True))
-    if sst_enabled:
-        exclude_cols_t1 = ["general_inorganics_ec_ds_m",
-                           "general_inorganics_sar",
-                           "soluble_ions_chloride_mg_l",
-                           "soluble_ions_sodium_mg_kg"]
-    else:
-        exclude_cols_t1 = ["general_inorganics_ec_ds_m",
-                           "general_inorganics_sar",
-                           "soluble_ions_chloride_mg_kg",
-                           "soluble_ions_sodium_mg_kg"]
+    # The user can choose which chloride units to show in the Tier 1 exceedances
+    # table via the "Show Chloride Exceedances" multiselect (mg/L and/or mg/kg).
+    # Selecting both includes both chloride columns; selecting none includes neither.
+    show_chloride_exceedances = ctx.params.get("show_chloride_exceedances", ["mg/L"])
+    selected_chloride = " ".join(show_chloride_exceedances or []).casefold()
+    chloride_cols = {
+        "mg/kg": "soluble_ions_chloride_mg_kg",
+        "mg/l": "soluble_ions_chloride_mg_l",
+    }
 
-    # limiting_df has cleaned (snake_case) columns, so test membership directly.
-    compare_cols_t1 = [
-        c for c in soil_data_filtered.columns
-        if c in limiting_df.columns and c not in exclude_cols_t1
-    ]
+    exclude_cols = ["soluble_ions_sodium_mg_kg", "general_inorganics_ec_ds_m", "general_inorganics_sar"]
+    if "all" not in selected_chloride:
+        exclude_cols += [col for unit, col in chloride_cols.items() if unit not in selected_chloride]
+    # limiting_df carries cleaned (snake_case) columns, so test membership there;
+    # _build_limit_exceedances renames limiting_tier1_guideline_df internally.
+    compare_cols_t1 = [c for c in soil_data_filtered.columns if c in limiting_df.columns and c not in exclude_cols]
 
     # Create a df of all tier1 exceedances except SCARG
     ab_tier1_only_exceedances_df = _build_limit_exceedances(

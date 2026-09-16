@@ -23,8 +23,10 @@ const STEPS = [
 function initialParams(schema: Schema): Params {
   const p: Params = {};
   for (const inp of schema.inputs) {
-    if (["multiselect", "file"].includes(inp.control)) continue;
+    if (inp.control === "file") continue;
     if (inp.control === "toggle") p[inp.name] = inp.example ?? false;
+    // Multiselects with a default (e.g. show_chloride_exceedances) get seeded
+    // here; file-derived multiselects have no default and stay empty until upload.
     else if (inp.example != null) p[inp.name] = inp.example;
   }
   return p;
@@ -57,7 +59,8 @@ export default function WizardApp() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    getSchema().then((s) => { setSchema(s); setParams(initialParams(s)); });
+    // SST is off by default, so fetch the schema without the SST tabs/params.
+    getSchema(false).then((s) => { setSchema(s); setParams(initialParams(s)); });
   }, []);
 
   const setParam = (name: string, v: unknown) => {
@@ -88,6 +91,10 @@ export default function WizardApp() {
       const res = await uploadFile(file);
       setToken(res.token); setFilename(res.filename); setOptions(res.options);
       const prefilled: Params = { ...params };
+      // Reset the editable SCARG guidelines table on a new upload so the first
+      // run recomputes them from the new file (the auto-populate in doRun only
+      // fills the table when it's empty).
+      prefilled["scarg_guidelines"] = [];
       for (const inp of schema?.inputs ?? []) {
         if (inp.control === "multiselect" && inp.prefill === "all" && inp.options) {
           const src = res.options[inp.options];

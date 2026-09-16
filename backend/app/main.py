@@ -8,6 +8,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .context import Context, InputValidationError
@@ -87,3 +89,27 @@ def run(req: RunRequest) -> dict:
         raise HTTPException(400, str(exc))
     return {"outputs": ctx.outputs, "charts": ctx.charts, "options": ctx.options,
             "messages": ctx.messages, "errors": []}
+
+
+# ---------------------------------------------------------------------------
+# Static frontend (registered LAST so the /api/* routes above always win).
+# The built React app is copied to /app/frontend/dist by the Dockerfile; this
+# serves it from the same container/port as the API. In local dev the frontend
+# runs on its own Vite server, so this block is a no-op there.
+# ---------------------------------------------------------------------------
+_FRONTEND_DIST = Path("/app/frontend/dist")
+if _FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=_FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        return FileResponse(_FRONTEND_DIST / "index.html")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str) -> FileResponse:
+        """SPA fallback: serve index.html for any non-/api path (client-side
+        routing). /api routes are registered above and take precedence."""
+        candidate = _FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_FRONTEND_DIST / "index.html")

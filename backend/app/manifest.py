@@ -61,6 +61,7 @@ CHARTS = [
     # Variable Graphs sub-tab (rendered separately in the frontend).
     {"var": "tier1_variable_graph_1", "label": "Parameter 1", "tab": "tier1_graphs"},
     {"var": "tier1_variable_graph_2", "label": "Parameter 2", "tab": "tier1_graphs"},
+    {"var": "tier1_variable_graph_3", "label": "Parameter 3", "tab": "tier1_graphs"},
     # BG Chloride tab: 3 identical scatter plots.
     {"var": "bg_chloride_plot_1", "label": "Plot 1", "tab": "bg_chloride"},
     {"var": "bg_chloride_plot_2", "label": "Plot 2", "tab": "bg_chloride"},

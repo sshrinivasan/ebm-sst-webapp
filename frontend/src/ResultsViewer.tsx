@@ -191,21 +191,34 @@ export default function ResultsViewer({
 
               {t1Sub === "variable" && result && (
                 <>
-                  {[1, 2].map((n) => {
-                    const inputs = schema.inputs.filter((i) =>
+                  {[1, 2, 3].map((n) => {
+                    const mainInputs = schema.inputs.filter((i) =>
                       [`variable_graph_${n}`, `variable_graph${n}_boreholes`].includes(i.name)
                     ).sort((a, b) => a.name.length - b.name.length);
+                    const axisInputs = schema.inputs.filter((i) =>
+                      [`variable_graph${n}_x_max`, `variable_graph${n}_y_max`].includes(i.name)
+                    );
                     return (
                       <div className="card" key={`inputs-${n}`}>
                         <div className="card-head"><div className="card-title">Graph {n}</div></div>
                         <div style={{ padding: 24 }}>
-                          <FormGrid inputs={inputs} params={params} options={options} setParam={setParam} />
+                          <FormGrid inputs={mainInputs} params={params} options={options} setParam={setParam} />
+                          {axisInputs.length > 0 && (
+                            <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+                              {axisInputs.map((inp) => (
+                                <div key={inp.name} style={{ flex: "0 0 130px" }}>
+                                  <Field spec={inp} value={params[inp.name]} options={options} params={params}
+                                    onChange={(v) => setParam(inp.name, v)} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
                   })}
                   <div className="chart-row" style={{ justifyContent: "flex-start" }}>
-                    {[1, 2].map((n) => (
+                    {[1, 2, 3].map((n) => (
                       <VariableGraphPanel key={n} n={n} result={result} />
                     ))}
                   </div>

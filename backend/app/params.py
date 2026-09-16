@@ -29,6 +29,10 @@ PARAMS: list[dict] = [
      "group": "sst"},
     {"name": "chloride_guideline", "label": "Chloride guideline (mg/kg)",
      "kind": "number", "control": "number", "tab": "input_config", "default": 100},
+    # Borehole tab: which chloride column the borehole characteristics stats use.
+    {"name": "chloride_units", "label": "Chloride Units",
+     "kind": "str", "control": "select", "tab": "borehole",
+     "choices": ["mg/L", "mg/kg"], "default": "mg/L"},
     # NPP tab: two multiselects — background samples and near-APEC samples.
     # Options seeded from unique_bg_sample_ids / unique_all_sample_ids once the
     # file loads (computed by npp_analysis). Overlap is validated as an input error.
@@ -81,6 +85,11 @@ PARAMS: list[dict] = [
     {"name": "rosc_grouping_column", "label": "ROSC Grouping Column",
      "kind": "str", "control": "select", "tab": "exceedances",
      "choices": ["APEC", "Subarea"], "default": "Subarea"},
+    # Exceedances tab: which chloride columns appear in the Tier 1 exceedances
+    # table. Both or none can be selected (standard multiselect).
+    {"name": "show_chloride_exceedances", "label": "Show Chloride Exceedances",
+     "kind": "list", "control": "multiselect", "tab": "exceedances",
+     "choices": ["mg/L", "mg/kg"], "default": ["mg/L"]},
     {"name": "sst_flag", "label": "Site-specific (SST) enabled",
      "kind": "bool", "control": "toggle", "tab": "input_config", "default": False},
     {"name": "topsoil_depths", "label": "Topsoil / Subsoil depth intervals",
@@ -111,7 +120,7 @@ PARAMS: list[dict] = [
     {"name": "tier1_graph_samples", "label": "Samples to plot",
      "kind": "list", "control": "multiselect", "tab": "tier1_graphs",
      "options": "sample_ids", "prefill": "all", "full": False},
-    # Variable Graphs sub-tab: two parameter/borehole pairs feeding
+    # Variable Graphs sub-tab: three parameter/borehole pairs feeding
     # tier1_variable_charts. Boreholes share the tier1 sample_ids option list.
     {"name": "variable_graph_1", "label": "Select Parameter",
      "kind": "str", "control": "select", "tab": "tier1_graphs",
@@ -125,6 +134,25 @@ PARAMS: list[dict] = [
     {"name": "variable_graph2_boreholes", "label": "Boreholes",
      "kind": "list", "control": "multiselect", "tab": "tier1_graphs",
      "options": "sample_ids", "prefill": "all", "full": False},
+    {"name": "variable_graph_3", "label": "Select Parameter",
+     "kind": "str", "control": "select", "tab": "tier1_graphs",
+     "choices": variable_graph_options},
+    {"name": "variable_graph3_boreholes", "label": "Boreholes",
+     "kind": "list", "control": "multiselect", "tab": "tier1_graphs",
+     "options": "sample_ids", "prefill": "all", "full": False},
+    # Variable Graphs sub-tab: per-graph axis limits.
+    {"name": "variable_graph1_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "variable_graph1_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "variable_graph2_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "variable_graph2_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "variable_graph3_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "variable_graph3_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
     # SST Charts tab: the site-specific chart inputs. Only the SST Chloride
     # sub-tab has inputs right now (SST Sodium and SST SAR are placeholders).
     # The Chloride Plot Config table's Excluded Boreholes column reads its

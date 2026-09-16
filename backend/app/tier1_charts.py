@@ -125,7 +125,7 @@ variable_graph_options = [
 ]
 
 def plot_profile(colname, df, samples, reference_lines=None, title=None, reference_label="Guideline",
-                 reference_color=None, x_max=None):
+                 reference_color=None, x_max=None, y_max=None):
     xlabel = cleaned_name_to_excel_header_map.get(colname, colname)
     fig, ax = plt.subplots(figsize=(4, 6), facecolor='white')
     ax.set_facecolor('white')
@@ -184,7 +184,13 @@ def plot_profile(colname, df, samples, reference_lines=None, title=None, referen
                 if y_end == y_start:
                     ax.plot([x_curr, x_next], [y_end, y_start], color=c, linewidth=2, linestyle="--")
 
-    ax.set_ylim(bottom=0)
+    # Set the y-limits in data coordinates BEFORE inverting the axis; calling
+    # set_ylim([0, y_max]) after invert_yaxis() resets the axis direction and
+    # flips the depth profile.
+    if y_max not in (None, "") and float(y_max) > 0:
+        ax.set_ylim([0, float(y_max)])
+    else:
+        ax.set_ylim(bottom=0)
     ax.invert_yaxis()
     if title:
         fig.suptitle(title, fontsize=12, fontweight='bold', y=0.982)
@@ -284,11 +290,16 @@ def tier1_variable_charts(ctx: Context) -> Context:
 
     pairs = [
         (ctx.params.get("variable_graph_1"),
-         ctx.params.get("variable_graph1_boreholes") or [], "tier1_variable_graph_1"),
+         ctx.params.get("variable_graph1_boreholes") or [], "tier1_variable_graph_1",
+         "variable_graph1_x_max", "variable_graph1_y_max"),
         (ctx.params.get("variable_graph_2"),
-         ctx.params.get("variable_graph2_boreholes") or [], "tier1_variable_graph_2"),
+         ctx.params.get("variable_graph2_boreholes") or [], "tier1_variable_graph_2",
+         "variable_graph2_x_max", "variable_graph2_y_max"),
+        (ctx.params.get("variable_graph_3"),
+         ctx.params.get("variable_graph3_boreholes") or [], "tier1_variable_graph_3",
+         "variable_graph3_x_max", "variable_graph3_y_max"),
     ]
-    for _var, _boreholes, _chart_key in pairs:
+    for _var, _boreholes, _chart_key, _xmax_key, _ymax_key in pairs:
         if not _var or not _boreholes:
             continue  # incomplete pair -> no chart
         _col = display_name_to_cleaned_name_map.get(_var)
@@ -298,6 +309,7 @@ def tier1_variable_charts(ctx: Context) -> Context:
         _lines, _labels = _limiting_ref(_col, z_max, limiting_df)
         fig = plot_profile(_col, df=soil_data_filtered, samples=_boreholes,
                            reference_lines=_lines, reference_label=_labels or "Guideline",
-                           reference_color="red", title=_var)
+                           reference_color="red", title=_var,
+                           x_max=ctx.params.get(_xmax_key), y_max=ctx.params.get(_ymax_key))
         ctx.charts[_chart_key] = _fig_to_data_uri(fig)
     return ctx

@@ -17,8 +17,10 @@ function initialParams(schema: Schema): Params {
   const p: Params = {};
   for (const inp of schema.inputs) {
     // Prefill non-dataset controls from the example seed; leave wells/zones empty.
-    if (["multiselect", "file"].includes(inp.control)) continue;
+    if (inp.control === "file") continue;
     if (inp.control === "toggle") p[inp.name] = inp.example ?? false;
+    // Multiselects with a default (e.g. show_chloride_exceedances) get seeded
+    // here; file-derived multiselects have no default and stay empty until upload.
     else if (inp.example != null) p[inp.name] = inp.example;
   }
   return p;
@@ -57,7 +59,8 @@ export default function App() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    getSchema().then((s) => { setSchema(s); setParams(initialParams(s)); });
+    // SST is off by default, so fetch the schema without the SST tabs/params.
+    getSchema(false).then((s) => { setSchema(s); setParams(initialParams(s)); });
   }, []);
 
   const setParam = (name: string, v: unknown) => {
@@ -78,6 +81,10 @@ export default function App() {
       // preselect every option for multiselects marked prefill:"all" now that
       // their file-derived option lists are known (e.g. plot all boreholes).
       const prefilled: Params = { ...params };
+      // Reset the editable SCARG guidelines table on a new upload so the first
+      // run recomputes them from the new file (the auto-populate in doRun only
+      // fills the table when it's empty).
+      prefilled["scarg_guidelines"] = [];
       for (const inp of schema?.inputs ?? []) {
         if (inp.control === "multiselect" && inp.prefill === "all" && inp.options) {
           const src = res.options[inp.options];
@@ -319,21 +326,34 @@ export default function App() {
 
               {t1Sub === "variable" && token && (
                 <>
-                  {[1, 2].map((n) => {
-                    const inputs = schema.inputs.filter((i) =>
+                  {[1, 2, 3].map((n) => {
+                    const mainInputs = schema.inputs.filter((i) =>
                       [`variable_graph_${n}`, `variable_graph${n}_boreholes`].includes(i.name)
                     ).sort((a, b) => a.name.length - b.name.length);
+                    const axisInputs = schema.inputs.filter((i) =>
+                      [`variable_graph${n}_x_max`, `variable_graph${n}_y_max`].includes(i.name)
+                    );
                     return (
                       <div className="card" key={`inputs-${n}`}>
                         <div className="card-head"><div className="card-title">Graph {n}</div></div>
                         <div style={{ padding: 24 }}>
-                          <FormGrid inputs={inputs} params={params} options={options} setParam={setParam} />
+                          <FormGrid inputs={mainInputs} params={params} options={options} setParam={setParam} />
+                          {axisInputs.length > 0 && (
+                            <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+                              {axisInputs.map((inp) => (
+                                <div key={inp.name} style={{ flex: "0 0 130px" }}>
+                                  <Field spec={inp} value={params[inp.name]} options={options} params={params}
+                                    onChange={(v) => setParam(inp.name, v)} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
                   })}
                   <div className="chart-row" style={{ justifyContent: "flex-start" }}>
-                    {[1, 2].map((n) => (
+                    {[1, 2, 3].map((n) => (
                       <VariableGraphPanel key={n} n={n} result={result} />
                     ))}
                   </div>

@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+ebm-sst-env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Build / logs
+*.log
+
+# Large Excel data files (not needed in the image; uploaded at runtime)
+backend/*.xlsm
+backend/*.xlsx
+
+# Local env
+.env
+.env.*
