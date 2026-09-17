@@ -23,13 +23,14 @@ export function FormGrid({ inputs, params, options, setParam, resetValues }: {
  * the results (tables/charts) are immediately visible; expand to tweak inputs.
  * Styled as an accordion panel (see .rv-inputs in wizard.css).
  */
-export function CollapsibleInputs({ title, inputs, params, options, setParam, resetValues, children }: {
+export function CollapsibleInputs({ title, inputs, params, options, setParam, resetValues, children, defaultOpen = false }: {
   title: string; inputs?: InputSpec[]; params: Params; options: OptionMap;
   setParam: (n: string, v: unknown) => void;
   resetValues?: Record<string, unknown>;
   children?: React.ReactNode;   // optional custom body (e.g. markdown notes)
+  defaultOpen?: boolean;        // start expanded (e.g. when there's no default result)
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className={`card rv-inputs ${open ? "open" : ""}`}>
       <button className="rv-inputs-head" onClick={() => setOpen(!open)}>

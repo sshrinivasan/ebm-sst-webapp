@@ -275,6 +275,8 @@ table.data tbody tr:last-child td { border-bottom: none; }
 
 /* ---------- Forms ---------- */
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 26px; }
+/* Dense 4-across grid for compact input rows (e.g. BG Chloride X/Y axis config). */
+.form-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 20px; }
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field.full { grid-column: 1 / -1; }
 .field label { font-size: 13px; font-weight: 600; color: var(--ink-2); }

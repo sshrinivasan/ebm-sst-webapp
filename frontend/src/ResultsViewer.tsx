@@ -648,18 +648,37 @@ function BgChloridePanel({ n, schema, params, options, setParam, result }: {
   n: number; schema: Schema; params: Params; options: OptionMap;
   setParam: (name: string, v: unknown) => void; result: RunResult | null;
 }) {
-  const order = [
+  const xOrder = [
     `plot${n}_x_axis_metric1`, `plot${n}_x_axis_metric2`, `plot${n}_x_operation`, `plot${n}_x_axis_max`,
+  ];
+  const yOrder = [
     `plot${n}_y_axis_metric1`, `plot${n}_y_axis_metric2`, `plot${n}_y_operation`, `plot${n}_y_axis_max`,
   ];
-  const inputs = schema.inputs.filter((i) => order.includes(i.name))
-    .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  const xInputs = schema.inputs.filter((i) => xOrder.includes(i.name))
+    .sort((a, b) => xOrder.indexOf(a.name) - xOrder.indexOf(b.name));
+  const yInputs = schema.inputs.filter((i) => yOrder.includes(i.name))
+    .sort((a, b) => yOrder.indexOf(a.name) - yOrder.indexOf(b.name));
   const chart = result?.charts[`bg_chloride_plot_${n}`];
 
   return (
     <div className="card">
       <div className="card-head"><div className="card-title">Plot {n}</div></div>
-      <CollapsibleInputs title={`Plot ${n} Config`} inputs={inputs} params={params} options={options} setParam={setParam} />
+      {/* Open by default: there is no default plot, so the config is the first
+          thing the user needs to see. X and Y axis fields each fit on one row. */}
+      <CollapsibleInputs title={`Plot ${n} Config`} params={params} options={options} setParam={setParam} defaultOpen>
+        <div className="form-grid-4">
+          {xInputs.map((inp) => (
+            <Field key={inp.name} spec={inp} value={params[inp.name]} options={options} params={params}
+              onChange={(v) => setParam(inp.name, v)} />
+          ))}
+        </div>
+        <div className="form-grid-4">
+          {yInputs.map((inp) => (
+            <Field key={inp.name} spec={inp} value={params[inp.name]} options={options} params={params}
+              onChange={(v) => setParam(inp.name, v)} />
+          ))}
+        </div>
+      </CollapsibleInputs>
       {chart
         ? <img className="chart-img" src={chart} alt={`Plot ${n}`} />
         : <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render the chart.</div>}
