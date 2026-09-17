@@ -647,28 +647,32 @@ function SstProfileSubtab({ prefix, title, inputs, schema, params, options, setP
   }, [options]);
 
   const xMax = inputs.find((i) => i.name.endsWith("_x_axis_max"));
-  const tables = inputs.filter((i) => i.control === "table");
+  const guidelines = inputs.find((i) => i.name.endsWith("_additional_guidelines"));
+  const plotConfig = inputs.find((i) => i.name.endsWith("_plot_config"));
 
   return (
     <>
-      {/* Condensed Inputs panel: a narrow X Axis Max on top, then the two
-          editable tables (Additional Guidelines + Plot Config) side by side. */}
+      {/* Condensed Inputs panel: Additional Guidelines + X Axis Max on one row,
+          then the Plot Config table full-width below (its multiselects need
+          the room). */}
       {inputs.length > 0 && (
         <CollapsibleInputs title={`${title} inputs`} params={params} options={options} setParam={setParam}>
           <div className="sst-inputs">
-            {xMax && (
-              <div className="sst-inputs-xmax">
-                <Field spec={xMax} value={params[xMax.name]} options={options} params={params}
-                  onChange={(v) => setParam(xMax.name, v)} />
-              </div>
-            )}
-            {tables.length > 0 && (
-              <div className="sst-inputs-tables">
-                {tables.map((t) => (
-                  <Field key={t.name} spec={t} value={params[t.name]} options={options} params={params}
-                    onChange={(v) => setParam(t.name, v)} />
-                ))}
-              </div>
+            <div className="sst-inputs-row">
+              {guidelines && (
+                <Field spec={guidelines} value={params[guidelines.name]} options={options} params={params}
+                  onChange={(v) => setParam(guidelines.name, v)} />
+              )}
+              {xMax && (
+                <div className="sst-inputs-xmax">
+                  <Field spec={xMax} value={params[xMax.name]} options={options} params={params}
+                    onChange={(v) => setParam(xMax.name, v)} />
+                </div>
+              )}
+            </div>
+            {plotConfig && (
+              <Field spec={plotConfig} value={params[plotConfig.name]} options={options} params={params}
+                onChange={(v) => setParam(plotConfig.name, v)} />
             )}
           </div>
         </CollapsibleInputs>

@@ -277,14 +277,14 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 26px; }
 /* Dense 4-across grid for compact input rows (e.g. BG Chloride X/Y axis config). */
 .form-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 20px; }
-/* SST Charts subtab inputs: a narrow X Axis Max on top, then the two editable
-   tables (Additional Guidelines + Plot Config) side by side. */
+/* SST Charts subtab inputs: Additional Guidelines + X Axis Max on one row,
+   then the Plot Config table full-width below (its multiselects need room). */
 .sst-inputs { display: flex; flex-direction: column; gap: 18px; }
+.sst-inputs-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }
 .sst-inputs-xmax { max-width: 220px; }
-.sst-inputs-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
 /* Table fields are marked "full" (span the whole row) by default; inside the
-   side-by-side grid each table must take exactly one column. */
-.sst-inputs-tables .field.full { grid-column: auto; }
+   side-by-side row each table must take exactly one column. */
+.sst-inputs-row .field.full { grid-column: auto; }
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field.full { grid-column: 1 / -1; }
 .field label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
