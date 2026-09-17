@@ -164,13 +164,16 @@ PARAMS: list[dict] = [
          {"key": "Depth Interval", "label": "Depth Interval", "control": "text"},
          {"key": "Guideline", "label": "Guideline", "control": "number"},
      ],
-     "default": []},
+     "minRows": 1, "default": []},
     {"name": "sst_cl_x_axis_max", "label": "X Axis Max",
      "kind": "number", "control": "number", "tab": "sst_charts", "default": None},
     {"name": "chloride_plot_config", "label": "Chloride Plot Config",
      "kind": "table", "control": "table", "tab": "sst_charts",
      "columns": [
-         {"key": "subarea", "label": "Subarea", "control": "text"},
+         # Subarea select: choices come from the file-derived sst_subareas
+         # option list (all unique subareas in the soil table).
+         {"key": "subarea", "label": "Subarea", "control": "select",
+          "options": "sst_subareas"},
          # Only boreholes whose soil_data_filtered.subarea matches the row's
          # Subarea. The choice list resolves per-row from the file-derived
          # sst_subarea_boreholes option map.
@@ -182,7 +185,43 @@ PARAMS: list[dict] = [
          {"key": "additional_reference_lines", "label": "Additional Reference Lines",
           "control": "multiselect", "options_param": "chloride_additional_guidelines"},
      ],
-     "options": "chloride_plot_config_default", "default": []},
+     "options": "chloride_plot_config_default", "minRows": 1, "default": []},
+    # SST Charts tab: the Sodium and SAR subtabs mirror the Chloride subtab's
+    # inputs (X Axis Max, Additional Guidelines, Plot Config), one set each.
+    *[
+        param
+        for prefix, label in [("na", "Sodium"), ("sar", "SAR")]
+        for param in (
+            {"name": f"sst_{prefix}_x_axis_max", "label": "X Axis Max",
+             "kind": "number", "control": "number", "tab": "sst_charts", "default": None},
+            {"name": f"{prefix}_additional_guidelines", "label": "Additional Guidelines",
+             "kind": "table", "control": "table", "tab": "sst_charts",
+             "columns": [
+                 {"key": "Label", "label": "Label", "control": "text"},
+                 {"key": "Depth Interval", "label": "Depth Interval", "control": "text"},
+                 {"key": "Guideline", "label": "Guideline", "control": "number"},
+             ],
+             "minRows": 1, "default": []},
+            {"name": f"{prefix}_plot_config", "label": f"{label} Plot Config",
+             "kind": "table", "control": "table", "tab": "sst_charts",
+             "columns": [
+                 # Subarea select: choices come from the file-derived
+                 # sst_subareas option list (all unique subareas).
+                 {"key": "subarea", "label": "Subarea", "control": "select",
+                  "options": "sst_subareas"},
+                 # Only boreholes whose soil_data_filtered.subarea matches the
+                 # row's Subarea (per-row from sst_subarea_boreholes).
+                 {"key": "excluded_boreholes", "label": "Excluded Boreholes",
+                  "control": "multiselect", "options": "sst_subarea_boreholes",
+                  "options_by_row": "subarea"},
+                 # Reference lines: labels from this subtab's Additional
+                 # Guidelines table (param-sourced, resolved client-side).
+                 {"key": "additional_reference_lines", "label": "Additional Reference Lines",
+                  "control": "multiselect", "options_param": f"{prefix}_additional_guidelines"},
+             ],
+             "options": f"{prefix}_plot_config_default", "minRows": 1, "default": []},
+        )
+    ],
     # BG Chloride tab: 3 identical scatter-plot configs (n = 1, 2, 3).
     *[
         param

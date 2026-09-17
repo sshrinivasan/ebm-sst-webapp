@@ -80,40 +80,15 @@ def build_plot_config_default(soil_data_filtered: pd.DataFrame) -> dict:
     }
 
 
-def seed_sst_chloride(ctx: Context) -> Context:
-    """Seed the SST Chloride inputs + file-derived options on the Context.
+def _build_plot_config(ctx: Context, param_name: str, columns: list[str]) -> pd.DataFrame:
+    """Read a plot-config table param and normalize its rows to real lists.
 
-    Produces:
-      additional_guidelines_df  - Label / Depth Interval / Guideline rows the
-                                  user entered on the subtab.
-      chloride_plot_config      - Subarea / Excluded Boreholes / Additional
-                                  Reference Lines, with the two list columns
-                                  normalized to real lists.
-      options.sst_subarea_boreholes / options.chloride_plot_config_default
-                                - file-derived selector seed (also set on
-                                  upload; refreshed here so runs stay fresh).
+    The frontend multiselects send the Excluded Boreholes / Additional
+    Reference Lines cells as lists (already JSON-safe); normalize a
+    comma-separated string just in case. Blank Subarea rows are skipped.
     """
-    soil_data_filtered = ctx.frames["soil_data_filtered"]
-
-    # Table 1 — Additional Guidelines (Label / Depth Interval / Guideline).
-    # Explicit columns so downstream code (render_sst_profile_set) never hits a
-    # KeyError when the user left the table empty (pd.DataFrame([]) has none).
-    additional_rows = ctx.params.get("chloride_additional_guidelines") or []
-    additional_guidelines_df = pd.DataFrame(
-        additional_rows, columns=["Label", "Depth Interval", "Guideline"]
-    )
-    ctx.frames["additional_guidelines_df"] = additional_guidelines_df
-
-    # Per-subarea borehole map for the Excluded Boreholes multiselect (only
-    # boreholes whose soil_data_filtered.subarea matches the row's Subarea).
-    # Seeded here (after a run) and on upload (see main.py).
-    ctx.options["sst_subarea_boreholes"] = build_subarea_borehole_map(soil_data_filtered)
-
-    # Table 2 — Chloride Plot Config. The frontend multiselects send the
-    # Excluded Boreholes / Additional Reference Lines cells as lists (already
-    # JSON-safe); normalize a comma-separated string just in case.
-    config_rows = ctx.params.get("chloride_plot_config") or []
-    plot_config_records = []
+    config_rows = ctx.params.get(param_name) or []
+    records = []
     for _row in config_rows:
         subarea = str(_row.get("subarea") or "").strip()
         if not subarea:
@@ -124,18 +99,69 @@ def seed_sst_chloride(ctx: Context) -> Context:
         ref_lines = _row.get("additional_reference_lines") or []
         if isinstance(ref_lines, str):
             ref_lines = [s.strip() for s in ref_lines.split(",") if s.strip()]
-        plot_config_records.append({
+        records.append({
             "Subarea": subarea,
             "Excluded Boreholes": list(excluded),
             "Additional Reference Lines": list(ref_lines),
         })
+    return pd.DataFrame(records, columns=columns)
 
-    chloride_plot_config = pd.DataFrame(plot_config_records, columns=PLOT_CONFIG_COLUMNS)
-    ctx.frames["chloride_plot_config"] = chloride_plot_config
 
-    # Keep the file-derived default available as an option so the frontend can
-    # re-seed the table on every run (not just on upload).
-    ctx.options["chloride_plot_config_default"] = build_plot_config_default(soil_data_filtered)
+def seed_sst_chloride(ctx: Context) -> Context:
+    """Seed the SST Charts inputs + file-derived options on the Context.
+
+    Produces, for each of the Chloride / Sodium / SAR subtabs:
+      <subtab>_additional_guidelines_df - Label / Depth Interval / Guideline
+                                          rows the user entered on the subtab.
+      <subtab>_plot_config             - Subarea / Excluded Boreholes /
+                                          Additional Reference Lines, with the
+                                          two list columns normalized to lists.
+      options.sst_subarea_boreholes / options.sst_subareas
+                                        - file-derived selector seed (also set
+                                          on upload; refreshed here so runs
+                                          stay fresh).
+      options.<subtab>_plot_config_default
+                                        - file-derived default rows (also set
+                                          on upload).
+    """
+    soil_data_filtered = ctx.frames["soil_data_filtered"]
+
+    # Additional Guidelines tables (Label / Depth Interval / Guideline).
+    # Explicit columns so downstream code (render_sst_profile_set) never hits a
+    # KeyError when the user left a table empty (pd.DataFrame([]) has none).
+    for param_name, frame_name in [
+        ("chloride_additional_guidelines", "additional_guidelines_df"),
+        ("na_additional_guidelines", "na_additional_guidelines_df"),
+        ("sar_additional_guidelines", "sar_additional_guidelines_df"),
+    ]:
+        rows = ctx.params.get(param_name) or []
+        ctx.frames[frame_name] = pd.DataFrame(
+            rows, columns=["Label", "Depth Interval", "Guideline"]
+        )
+
+    # Per-subarea borehole map for the Excluded Boreholes multiselect (only
+    # boreholes whose soil_data_filtered.subarea matches the row's Subarea),
+    # plus the flat subarea list for the Subarea column's select. Seeded here
+    # (after a run) and on upload (see main.py).
+    _sst_subarea_map = build_subarea_borehole_map(soil_data_filtered)
+    ctx.options["sst_subarea_boreholes"] = _sst_subarea_map
+    ctx.options["sst_subareas"] = sorted(_sst_subarea_map.keys())
+
+    # Plot Config tables (Subarea / Excluded Boreholes / Additional Reference
+    # Lines) for the Chloride, Sodium, and SAR subtabs.
+    for param_name, frame_name in [
+        ("chloride_plot_config", "chloride_plot_config"),
+        ("na_plot_config", "na_plot_config"),
+        ("sar_plot_config", "sar_plot_config"),
+    ]:
+        ctx.frames[frame_name] = _build_plot_config(ctx, param_name, PLOT_CONFIG_COLUMNS)
+
+    # Keep the file-derived defaults available as options so the frontend can
+    # re-seed the tables on every run (not just on upload).
+    _plot_config_default = build_plot_config_default(soil_data_filtered)
+    ctx.options["chloride_plot_config_default"] = _plot_config_default
+    ctx.options["na_plot_config_default"] = _plot_config_default
+    ctx.options["sar_plot_config_default"] = _plot_config_default
 
     return ctx
 
@@ -252,18 +278,17 @@ def render_sst_profile_set(
 
 
 def sst_chloride_charts(ctx: Context) -> Context:
-    """Generate the SST Chloride vertical-profile charts per subarea.
+    """Generate the SST Chloride / Sodium / SAR vertical-profile charts.
 
     Reads the seeded frames/params from the Context (set by seed_sst_chloride)
-    plus the file-derived SST chloride guidelines (module-level for now), and
-    pushes each subarea figure into ``ctx.charts``.
+    plus the file-derived SST guidelines, and pushes each subarea figure into
+    ``ctx.charts`` (keys: sst_cl_profile_chloride_*, sst_cl_profile_sodium_*,
+    sst_cl_profile_sar_*).
     """
     soil_data_filtered = ctx.frames["soil_data_filtered"]
-    plot_config = ctx.frames["chloride_plot_config"]
-    additional_guidelines = ctx.frames["additional_guidelines_df"]
     ab_unique_subareas = ctx.options.get("sst_subarea_boreholes", {})
     limiting_df = ctx.frames.get("limiting_df")
-    sst_cl_x_axis_max = ctx.params.get("sst_cl_x_axis_max")
+
     # File-derived SST Chloride guidelines (Subarea / Depth Range / Cl Guideline),
     # read from the workbook by the loader's read_sst_guidelines step.
     sst_cl_guide_default_df = ctx.frames.get("sst_cl_guide_default_df")
@@ -271,21 +296,62 @@ def sst_chloride_charts(ctx: Context) -> Context:
         ctx.notify("No SST Chloride guideline block found in the workbook.", "warning", "sst_chloride_charts")
         sst_cl_guide_default_df = pd.DataFrame(columns=["Subarea", "Depth Range", "Cl Guideline"])
 
+    # File-derived SST Na/SAR guidelines (Subarea / Depth Range / Na Guideline /
+    # SAR Guideline), read from the workbook by the loader's read_sst_guidelines step.
+    sst_na_sar_guide_default_df = ctx.frames.get("sst_na_sar_guide_default_df")
+    if sst_na_sar_guide_default_df is None:
+        ctx.notify("No SST Na/SAR guideline block found in the workbook.", "warning", "sst_chloride_charts")
+        sst_na_sar_guide_default_df = pd.DataFrame(columns=["Subarea", "Depth Range", "Na Guideline", "SAR Guideline"])
+
+    # Chloride
     figs = render_sst_profile_set(
-        plot_config=plot_config,
-        additional_guidelines=additional_guidelines,
+        plot_config=ctx.frames["chloride_plot_config"],
+        additional_guidelines=ctx.frames["additional_guidelines_df"],
         column="soluble_ions_chloride_mg_kg",
         df=soil_data_filtered,
         valid_subareas=ab_unique_subareas,
         config_label="Chloride",
-        save_prefix="SST_CHLORIDE",
-        save_name=lambda subarea: f"{subarea}.png",
         sst_guidelines=sst_cl_guide_default_df,
         sst_guideline_column="Cl Guideline",
         sst_units="mg/kg",
         fallback_guidelines=limiting_df,
-        x_max=sst_cl_x_axis_max,
+        x_max=ctx.params.get("sst_cl_x_axis_max"),
     )
     for key, fig in figs.items():
         ctx.charts[key] = _fig_to_data_uri(fig)
+
+    # Sodium
+    figs = render_sst_profile_set(
+        plot_config=ctx.frames["na_plot_config"],
+        additional_guidelines=ctx.frames["na_additional_guidelines_df"],
+        column="soluble_ions_sodium_mg_kg",
+        df=soil_data_filtered,
+        valid_subareas=ab_unique_subareas,
+        config_label="Sodium",
+        sst_guidelines=sst_na_sar_guide_default_df,
+        sst_guideline_column="Na Guideline",
+        sst_units="mg/kg",
+        fallback_guidelines=limiting_df,
+        x_max=ctx.params.get("sst_na_x_axis_max"),
+    )
+    for key, fig in figs.items():
+        ctx.charts[key] = _fig_to_data_uri(fig)
+
+    # SAR
+    figs = render_sst_profile_set(
+        plot_config=ctx.frames["sar_plot_config"],
+        additional_guidelines=ctx.frames["sar_additional_guidelines_df"],
+        column="general_inorganics_sar",
+        df=soil_data_filtered,
+        valid_subareas=ab_unique_subareas,
+        config_label="SAR",
+        sst_guidelines=sst_na_sar_guide_default_df,
+        sst_guideline_column="SAR Guideline",
+        sst_units="",
+        fallback_guidelines=limiting_df,
+        x_max=ctx.params.get("sst_sar_x_axis_max"),
+    )
+    for key, fig in figs.items():
+        ctx.charts[key] = _fig_to_data_uri(fig)
+
     return ctx

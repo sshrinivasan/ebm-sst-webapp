@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Schema, RunResult, Params, OptionMap, Notice, TableData, InputSpec } from "./types";
 import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
@@ -429,93 +429,36 @@ export default function ResultsViewer({
               </div>
 
               {sstChartsSub === "chloride" && (
-                <>
-                  {/* X Axis Max numeric input for the SST Chloride profile charts */}
-                  {result && (
-                    <div className="card">
-                      <div className="card-head">
-                        <div className="card-title">X Axis Max</div>
-                        <div className="card-meta">Profile x-axis limit (optional)</div>
-                      </div>
-                      <div style={{ padding: 24 }}>
-                        <FormGrid
-                          inputs={schema.inputs.filter((i) => i.name === "sst_cl_x_axis_max")}
-                          params={params} options={options} setParam={setParam} />
-                      </div>
-                    </div>
+                <SstProfileSubtab
+                  prefix="sst_cl_profile_chloride_"
+                  title="SST Chloride"
+                  inputs={schema.inputs.filter((i) =>
+                    ["sst_cl_x_axis_max", "chloride_additional_guidelines", "chloride_plot_config"].includes(i.name)
                   )}
-                  {/* Additional Guidelines input table */}
-                  {result && (
-                    <div className="card">
-                      <div className="card-head">
-                        <div className="card-title">Additional Guidelines</div>
-                        <div className="card-meta">Label · Depth Interval · Guideline</div>
-                      </div>
-                      <div style={{ padding: 24 }}>
-                        <FormGrid
-                          inputs={schema.inputs.filter((i) => i.name === "chloride_additional_guidelines")}
-                          params={params} options={options} setParam={setParam} />
-                      </div>
-                    </div>
-                  )}
-                  {/* Chloride Plot Config input table (per-subarea excluded boreholes) */}
-                  {result && (
-                    <div className="card">
-                      <div className="card-head">
-                        <div className="card-title">Chloride Plot Config</div>
-                        <div className="card-meta">Excluded Boreholes per Subarea</div>
-                      </div>
-                      <div style={{ padding: 24 }}>
-                        <FormGrid
-                          inputs={schema.inputs.filter((i) => i.name === "chloride_plot_config")}
-                          params={params} options={options} setParam={setParam} />
-                      </div>
-                    </div>
-                  )}
-                  {/* SST Chloride profile charts (one per subarea) */}
-                  {result && (
-                    <div className="chart-row">
-                      {Object.keys(result?.charts ?? {})
-                        .filter((k) => k.startsWith("sst_cl_profile_chloride_"))
-                        .map((key) => {
-                          const subarea = key.replace("sst_cl_profile_chloride_", "").replace(/_/g, " ");
-                          return (
-                            <div className="card chart-card sst-cl-chart-card" key={key}>
-                              <div className="card-head"><div className="card-title">SST Chloride — {subarea}</div></div>
-                              {result?.charts[key]
-                                ? <img className="chart-img sst-cl-chart-img" src={result.charts[key]} alt={`SST Chloride ${subarea}`} />
-                                : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render.</div>}
-                            </div>
-                          );
-                        })}
-                      {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith("sst_cl_profile_chloride_")).length === 0 && (
-                        <div className="card">
-                          <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
-                            Configure subareas and run to render the SST Chloride profiles.
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
+                  schema={schema} params={params} options={options} setParam={setParam} result={result}
+                />
               )}
 
-              {sstChartsSub === "sodium" && result && (
-                <div className="card">
-                  <div className="card-head"><div className="card-title">SST Sodium</div></div>
-                  <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
-                    Coming soon.
-                  </div>
-                </div>
+              {sstChartsSub === "sodium" && (
+                <SstProfileSubtab
+                  prefix="sst_cl_profile_sodium_"
+                  title="SST Sodium"
+                  inputs={schema.inputs.filter((i) =>
+                    ["sst_na_x_axis_max", "na_additional_guidelines", "na_plot_config"].includes(i.name)
+                  )}
+                  schema={schema} params={params} options={options} setParam={setParam} result={result}
+                />
               )}
 
-              {sstChartsSub === "sar" && result && (
-                <div className="card">
-                  <div className="card-head"><div className="card-title">SST SAR</div></div>
-                  <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
-                    Coming soon.
-                  </div>
-                </div>
+              {sstChartsSub === "sar" && (
+                <SstProfileSubtab
+                  prefix="sst_cl_profile_sar_"
+                  title="SST SAR"
+                  inputs={schema.inputs.filter((i) =>
+                    ["sst_sar_x_axis_max", "sar_additional_guidelines", "sar_plot_config"].includes(i.name)
+                  )}
+                  schema={schema} params={params} options={options} setParam={setParam} result={result}
+                />
               )}
             </div>
           )}
@@ -683,6 +626,79 @@ function BgChloridePanel({ n, schema, params, options, setParam, result }: {
         ? <img className="chart-img" src={chart} alt={`Plot ${n}`} />
         : <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render the chart.</div>}
     </div>
+  );
+}
+
+// Mirrors the backend's _slugify (sst_charts.py): lowercase, non-alnum -> "_".
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function SstProfileSubtab({ prefix, title, inputs, schema, params, options, setParam, result }: {
+  prefix: string; title: string; inputs: InputSpec[];
+  schema: Schema; params: Params; options: OptionMap;
+  setParam: (n: string, v: unknown) => void; result: RunResult | null;
+}) {
+  // Map a slugified subarea (as used in the chart keys) back to the original
+  // subarea name so chart titles keep the file's casing (e.g. "SA1" not "sa1").
+  const slugToName = useMemo(() => {
+    const subareas = (options["sst_subareas"] as string[] | undefined) ?? [];
+    return Object.fromEntries(subareas.map((s) => [slugify(s), s]));
+  }, [options]);
+
+  const xMax = inputs.find((i) => i.name.endsWith("_x_axis_max"));
+  const tables = inputs.filter((i) => i.control === "table");
+
+  return (
+    <>
+      {/* Condensed Inputs panel: a narrow X Axis Max on top, then the two
+          editable tables (Additional Guidelines + Plot Config) side by side. */}
+      {inputs.length > 0 && (
+        <CollapsibleInputs title={`${title} inputs`} params={params} options={options} setParam={setParam}>
+          <div className="sst-inputs">
+            {xMax && (
+              <div className="sst-inputs-xmax">
+                <Field spec={xMax} value={params[xMax.name]} options={options} params={params}
+                  onChange={(v) => setParam(xMax.name, v)} />
+              </div>
+            )}
+            {tables.length > 0 && (
+              <div className="sst-inputs-tables">
+                {tables.map((t) => (
+                  <Field key={t.name} spec={t} value={params[t.name]} options={options} params={params}
+                    onChange={(v) => setParam(t.name, v)} />
+                ))}
+              </div>
+            )}
+          </div>
+        </CollapsibleInputs>
+      )}
+      {/* Vertical-profile charts (one per subarea) */}
+      {result && (
+        <div className="chart-row">
+          {Object.keys(result?.charts ?? {})
+            .filter((k) => k.startsWith(prefix))
+            .map((key) => {
+              const slug = key.slice(prefix.length);
+              const subarea = slugToName[slug] ?? slug.replace(/_/g, " ");
+              return (
+                <div className="card chart-card sst-cl-chart-card" key={key}>
+                  {result?.charts[key]
+                    ? <img className="chart-img sst-cl-chart-img" src={result.charts[key]} alt={`${title} ${subarea}`} />
+                    : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render.</div>}
+                </div>
+              );
+            })}
+          {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith(prefix)).length === 0 && (
+            <div className="card">
+              <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
+                Configure subareas and run to render the {title} profiles.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 

@@ -44,22 +44,38 @@ function optionsFor(
 }
 
 export function TableInput({
-  columns, value, options, params, onChange,
+  columns, value, options, params, onChange, minRows = 0,
 }: {
   columns: TableColumn[];
   value: Row[];
   options?: OptionMap;
   params?: Params;
   onChange: (rows: Row[]) => void;
+  minRows?: number;   // minimum visible rows; empty rows make the table obviously editable
 }) {
   const rows = Array.isArray(value) ? value : [];
+  // Pad with empty rows up to minRows so an empty table still shows a row.
+  const visibleRows = rows.length >= minRows
+    ? rows
+    : [
+        ...rows,
+        ...Array.from({ length: minRows - rows.length }, () =>
+          Object.fromEntries(columns.map((c) => [c.key, ""]))),
+      ];
 
   const setCell = (i: number, key: string, v: unknown) => {
-    const next = rows.map((r, ri) => (ri === i ? { ...r, [key]: v } : r));
+    const next = [...rows];
+    while (next.length <= i) {
+      next.push(Object.fromEntries(columns.map((c) => [c.key, ""])));
+    }
+    next[i] = { ...next[i], [key]: v };
     onChange(next);
   };
   const addRow = () => onChange([...rows, Object.fromEntries(columns.map((c) => [c.key, ""]))]);
-  const removeRow = (i: number) => onChange(rows.filter((_, ri) => ri !== i));
+  const removeRow = (i: number) => {
+    if (i >= rows.length) return; // placeholder row: nothing to remove
+    onChange(rows.filter((_, ri) => ri !== i));
+  };
 
   return (
     <div className="tbl-input">
@@ -71,15 +87,24 @@ export function TableInput({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
+          {visibleRows.map((row, i) => (
             <tr key={i}>
               {columns.map((c) => (
                 <td key={c.key}>
                   {c.control === "select" ? (
-                    <select value={String(row[c.key] ?? "")} onChange={(e) => setCell(i, c.key, e.target.value)}>
-                      <option value="">—</option>
-                      {(c.choices ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                    (() => {
+                      // Static choices, or a file-derived option list (e.g. the
+                      // Chloride Plot Config Subarea column -> sst_subareas).
+                      const opts = c.choices
+                        ? c.choices.map((o) => ({ value: o, label: o }))
+                        : optionsFor(c, row, options ?? {}, params ?? {});
+                      return (
+                        <select value={String(row[c.key] ?? "")} onChange={(e) => setCell(i, c.key, e.target.value)}>
+                          <option value="">—</option>
+                          {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      );
+                    })()
                   ) : c.control === "multiselect" ? (
                     <MultiSelect
                       options={optionsFor(c, row, options ?? {}, params ?? {})}

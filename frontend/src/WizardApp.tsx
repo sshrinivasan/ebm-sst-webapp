@@ -84,11 +84,33 @@ export default function WizardApp() {
         // TDS background samples) from the file-derived option lists already
         // loaded at upload. The upload-time prefill only sees the SST-off
         // schema, so these were skipped and would otherwise stay empty.
+        // Prefill only when the value is unset or an empty array — params with
+        // a `default: []` (e.g. chloride_plot_config) are seeded as [] by
+        // initialParams, so they must still be filled from the file-derived
+        // option lists.
+        const isEmpty = (v: unknown) => !Array.isArray(v) || (v as unknown[]).length === 0;
         for (const inp of s.inputs) {
           if (inp.control === "multiselect" && inp.prefill === "all" && inp.options) {
             const src = options[inp.options];
-            if (Array.isArray(src) && !Array.isArray(merged[inp.name])) {
+            if (Array.isArray(src) && isEmpty(merged[inp.name])) {
               merged[inp.name] = src.map(String);
+            }
+          }
+          // Prefill table controls backed by a file-derived option list (e.g.
+          // the SST Chloride Plot Config table) so their rows appear once SST
+          // is on. Row shape matches the backend's build_plot_config_default.
+          if (inp.control === "table" && inp.options) {
+            const src = options[inp.options] as TableData | undefined;
+            if (src && Array.isArray(src.rows) && isEmpty(merged[inp.name])) {
+              merged[inp.name] = src.rows.map((r) => ({
+                subarea: String(r.subarea ?? ""),
+                excluded_boreholes: Array.isArray(r.excluded_boreholes)
+                  ? (r.excluded_boreholes as string[])
+                  : [],
+                additional_reference_lines: Array.isArray(r.additional_reference_lines)
+                  ? (r.additional_reference_lines as string[])
+                  : [],
+              }));
             }
           }
         }

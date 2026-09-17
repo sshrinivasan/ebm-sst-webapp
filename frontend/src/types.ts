@@ -33,6 +33,7 @@ export interface InputSpec {
   display_column?: string;
   value_column?: string;
   columns?: TableColumn[]; // for control === "table"
+  minRows?: number;  // table controls: minimum visible rows (empty rows shown so the table is obviously editable)
 }
 
 export interface TableData {

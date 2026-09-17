@@ -66,16 +66,19 @@ async def upload(file: UploadFile = File(...)) -> dict:
     # Seed the TDS background-sample multiselect option list so the TDS tab's
     # selector is populated immediately, before the first run.
     ctx = seed_tds_options(ctx)
-    # Seed the SST Charts Chloride Plot Config table (file-derived subareas)
-    # so the table is populated immediately, before the first run.
-    ctx.options["chloride_plot_config_default"] = build_plot_config_default(
-        ctx.frames["soil_data_filtered"]
-    )
+    # Seed the SST Charts Plot Config tables (file-derived subareas) for the
+    # Chloride, Sodium, and SAR subtabs so they are populated immediately,
+    # before the first run.
+    _plot_config_default = build_plot_config_default(ctx.frames["soil_data_filtered"])
+    ctx.options["chloride_plot_config_default"] = _plot_config_default
+    ctx.options["na_plot_config_default"] = _plot_config_default
+    ctx.options["sar_plot_config_default"] = _plot_config_default
     # Seed the per-subarea borehole lists so the Chloride Plot Config table's
-    # Excluded Boreholes multiselect is populated immediately.
-    ctx.options["sst_subarea_boreholes"] = build_subarea_borehole_map(
-        ctx.frames["soil_data_filtered"]
-    )
+    # Excluded Boreholes multiselect is populated immediately, plus the flat
+    # subarea list for the Subarea column's select.
+    _sst_subarea_map = build_subarea_borehole_map(ctx.frames["soil_data_filtered"])
+    ctx.options["sst_subarea_boreholes"] = _sst_subarea_map
+    ctx.options["sst_subareas"] = sorted(_sst_subarea_map.keys())
     return {"token": token, "filename": file.filename, "options": ctx.options}
 
 

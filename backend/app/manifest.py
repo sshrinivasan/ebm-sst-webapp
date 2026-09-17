@@ -134,6 +134,8 @@ SST_PARAMS = {
     "lower_depth_limit",
     "subarea_assignments",
     "chloride_additional_guidelines", "sst_cl_x_axis_max", "chloride_plot_config",
+    "na_additional_guidelines", "sst_na_x_axis_max", "na_plot_config",
+    "sar_additional_guidelines", "sst_sar_x_axis_max", "sar_plot_config",
     "texture_depth_user", "saturation_profile_samples",
 }
 

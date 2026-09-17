@@ -36,7 +36,7 @@ export function Field({
     case "table":
       control = (
         <TableInput columns={spec.columns ?? []} value={(value as Record<string, unknown>[]) ?? []}
-          options={options} params={params} onChange={onChange} />
+          options={options} params={params} onChange={onChange} minRows={spec.minRows} />
       );
       break;
     case "subarea_assigner":

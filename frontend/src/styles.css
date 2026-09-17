@@ -277,6 +277,14 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 26px; }
 /* Dense 4-across grid for compact input rows (e.g. BG Chloride X/Y axis config). */
 .form-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 20px; }
+/* SST Charts subtab inputs: a narrow X Axis Max on top, then the two editable
+   tables (Additional Guidelines + Plot Config) side by side. */
+.sst-inputs { display: flex; flex-direction: column; gap: 18px; }
+.sst-inputs-xmax { max-width: 220px; }
+.sst-inputs-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+/* Table fields are marked "full" (span the whole row) by default; inside the
+   side-by-side grid each table must take exactly one column. */
+.sst-inputs-tables .field.full { grid-column: auto; }
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field.full { grid-column: 1 / -1; }
 .field label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
@@ -343,8 +351,10 @@ select.control { cursor: pointer; appearance: none;
 /* table input (editable grid) */
 .tbl-input { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
 .tbl-input table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl-input thead th { text-align: left; font-weight: 600; color: var(--ink-2); background: #f3f7f9; padding: 8px 10px; font-size: 12px; border-bottom: 1px solid var(--line); }
-.tbl-input tbody td { padding: 5px 6px; border-bottom: 1px solid var(--line-2); }
+.tbl-input thead th { text-align: left; font-weight: 600; color: var(--ink-2); background: #f3f7f9; padding: 8px 10px; font-size: 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line-2); }
+.tbl-input thead th:last-child { border-right: none; }
+.tbl-input tbody td { padding: 5px 6px; border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-2); }
+.tbl-input tbody td:last-child { border-right: none; }
 .tbl-input tbody tr:last-child td { border-bottom: none; }
 .tbl-input input, .tbl-input select { width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit; background: #fbfdfe; color: var(--ink); }
 .tbl-input input:focus, .tbl-input select:focus { outline: none; border-color: var(--accent); background: #fff; box-shadow: 0 0 0 2px var(--accent-soft); }
