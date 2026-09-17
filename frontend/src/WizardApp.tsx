@@ -80,6 +80,18 @@ export default function WizardApp() {
         // may have dropped SST params, so re-seed from the fresh schema but
         // keep any values the user already set.
         const merged: Params = { ...initialParams(s), ...params, [name]: v };
+        // Prefill multiselects that just appeared (e.g. NPP background samples,
+        // TDS background samples) from the file-derived option lists already
+        // loaded at upload. The upload-time prefill only sees the SST-off
+        // schema, so these were skipped and would otherwise stay empty.
+        for (const inp of s.inputs) {
+          if (inp.control === "multiselect" && inp.prefill === "all" && inp.options) {
+            const src = options[inp.options];
+            if (Array.isArray(src) && !Array.isArray(merged[inp.name])) {
+              merged[inp.name] = src.map(String);
+            }
+          }
+        }
         setParams(merged);
       });
     }

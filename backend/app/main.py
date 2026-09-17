@@ -19,6 +19,7 @@ from .params import defaults
 from .pipeline import run as run_pipeline
 from .percentile_95 import _build_borehole_sa_df
 from .npp import seed_npp_options
+from .tds import seed_tds_options
 from .sst_charts import build_plot_config_default, build_subarea_borehole_map
 
 app = FastAPI(title="EBM SST")
@@ -62,6 +63,9 @@ async def upload(file: UploadFile = File(...)) -> dict:
     # Seed the NPP background / near-APEC multiselect option lists so the NPP
     # tab's selectors are populated immediately, before the first run.
     ctx = seed_npp_options(ctx)
+    # Seed the TDS background-sample multiselect option list so the TDS tab's
+    # selector is populated immediately, before the first run.
+    ctx = seed_tds_options(ctx)
     # Seed the SST Charts Chloride Plot Config table (file-derived subareas)
     # so the table is populated immediately, before the first run.
     ctx.options["chloride_plot_config_default"] = build_plot_config_default(

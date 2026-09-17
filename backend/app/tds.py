@@ -51,17 +51,33 @@ def _resolve_depth_window(ctx: Context) -> tuple[float | None, float | None]:
         return max(water_table_depth - 2, 1), min(water_table_depth + 2, 6)
     return None, None
 
+# APEC labels that mark a sample as a background location (used to derive the
+# TDS background-sample set).
+background_apec_labels = ["Background", "APEC Background", "BKGD"]
+
+
+def seed_tds_options(ctx: Context) -> Context:
+    """Seed the TDS background-sample multiselect option list (available at
+    upload, before any run). Mirrors seed_npp_options: called from the upload
+    endpoint so the frontend selector is populated immediately."""
+    soil_data_filtered = ctx.frames["soil_data_filtered"]
+    background_df = soil_data_filtered[
+        soil_data_filtered["apec"].isin(background_apec_labels)
+    ]
+    tds_unique_samples = background_df["sample_id"].dropna().unique()
+    ctx.options["tds_unique_samples"] = [str(s) for s in tds_unique_samples]
+    return ctx
+
+
 def tds_analysis(ctx: Context) -> Context:
     soil_data_filtered = ctx.frames["soil_data_filtered"]
-    background_apec_labels = ["Background", "APEC Background", "BKGD"]
+    ctx = seed_tds_options(ctx)
     background_df = soil_data_filtered[
         soil_data_filtered["apec"].isin(background_apec_labels)]
-    
+
     tds_df_all = background_df[tds_header_columns.keys()]
     # List of unique sample_ids to include for TDS analysis (background only).
-    tds_unique_samples = tds_df_all["sample_id"].unique()
-    # Seed the frontend multiselect options from the computed background samples.
-    ctx.options["tds_unique_samples"] = [str(s) for s in tds_unique_samples]
+    tds_unique_samples = ctx.options["tds_unique_samples"]
     selected = ctx.params.get("tds_bg_samples") or list(map(str, tds_unique_samples))
     tds_df = tds_df_all[tds_df_all["sample_id"].isin(selected)].copy()
 
