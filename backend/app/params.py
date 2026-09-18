@@ -153,6 +153,34 @@ PARAMS: list[dict] = [
      "kind": "number", "control": "number", "tab": "tier1_graphs"},
     {"name": "variable_graph3_y_max", "label": "Y max",
      "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    # Tier 1 Graphs: per-chart axis limits (EC / SAR / Chloride).
+    {"name": "tier1_ec_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "tier1_ec_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "tier1_sar_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "tier1_sar_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "tier1_cl_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    {"name": "tier1_cl_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    # NPP profile axis limits.
+    {"name": "npp_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "npp"},
+    {"name": "npp_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "npp"},
+    # Texture saturation profile axis limits.
+    {"name": "saturation_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "texture"},
+    {"name": "saturation_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "texture"},
+    # 95th Percentile chloride profile axis limits.
+    {"name": "p95_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "95_percentile"},
+    {"name": "p95_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "95_percentile"},
     # SST Charts tab: the site-specific chart inputs. Only the SST Chloride
     # sub-tab has inputs right now (SST Sodium and SST SAR are placeholders).
     # The Chloride Plot Config table's Excluded Boreholes column reads its
@@ -166,6 +194,8 @@ PARAMS: list[dict] = [
      ],
      "minRows": 1, "default": []},
     {"name": "sst_cl_x_axis_max", "label": "X Axis Max",
+     "kind": "number", "control": "number", "tab": "sst_charts", "default": None},
+    {"name": "sst_cl_y_axis_max", "label": "Y Axis Max",
      "kind": "number", "control": "number", "tab": "sst_charts", "default": None},
     {"name": "chloride_plot_config", "label": "Chloride Plot Config",
      "kind": "table", "control": "table", "tab": "sst_charts",
@@ -193,6 +223,8 @@ PARAMS: list[dict] = [
         for prefix, label in [("na", "Sodium"), ("sar", "SAR")]
         for param in (
             {"name": f"sst_{prefix}_x_axis_max", "label": "X Axis Max",
+             "kind": "number", "control": "number", "tab": "sst_charts", "default": None},
+            {"name": f"sst_{prefix}_y_axis_max", "label": "Y Axis Max",
              "kind": "number", "control": "number", "tab": "sst_charts", "default": None},
             {"name": f"{prefix}_additional_guidelines", "label": "Additional Guidelines",
              "kind": "table", "control": "table", "tab": "sst_charts",

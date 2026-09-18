@@ -133,10 +133,13 @@ SST_PARAMS = {
     "tds_bg_samples", "use_custom_wt_depths", "upper_depth_limit",
     "lower_depth_limit",
     "subarea_assignments",
-    "chloride_additional_guidelines", "sst_cl_x_axis_max", "chloride_plot_config",
-    "na_additional_guidelines", "sst_na_x_axis_max", "na_plot_config",
-    "sar_additional_guidelines", "sst_sar_x_axis_max", "sar_plot_config",
+    "chloride_additional_guidelines", "sst_cl_x_axis_max", "sst_cl_y_axis_max", "chloride_plot_config",
+    "na_additional_guidelines", "sst_na_x_axis_max", "sst_na_y_axis_max", "na_plot_config",
+    "sar_additional_guidelines", "sst_sar_x_axis_max", "sst_sar_y_axis_max", "sar_plot_config",
     "texture_depth_user", "saturation_profile_samples",
+    "npp_x_max", "npp_y_max",
+    "saturation_x_max", "saturation_y_max",
+    "p95_x_max", "p95_y_max",
 }
 
 

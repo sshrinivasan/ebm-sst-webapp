@@ -16,28 +16,13 @@ Additional Guidelines table (resolved client-side from the params).
 """
 from __future__ import annotations
 
-import base64
-import io
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pandas as pd
 
 from .context import Context
-from .tier1_charts import plot_profile
+from .tier1_charts import plot_profile, _fig_to_data_uri
 
 # Plot-config table columns, in the exact order the frontend renders them.
 PLOT_CONFIG_COLUMNS = ["Subarea", "Excluded Boreholes", "Additional Reference Lines"]
-
-
-def _fig_to_data_uri(fig) -> str:
-    """Serialize a matplotlib figure to a base64 PNG data URI and close it."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return "data:image/png;base64," + base64.b64encode(buf.read()).decode("ascii")
 
 
 def _slugify(name: str) -> str:

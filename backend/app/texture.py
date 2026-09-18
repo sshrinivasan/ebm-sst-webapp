@@ -1,12 +1,9 @@
-import base64
-import io
 import math
 
-import numpy as np
-import pandas as pd
-from scipy.interpolate import PchipInterpolator
 import matplotlib.pyplot as plt
+import pandas as pd
 from .context import Context
+from .tier1_charts import plot_profile, _fig_to_data_uri
 
 
 def _clean_scalar(v):
@@ -189,59 +186,6 @@ def texture_analysis(ctx: Context) -> Context:
     return ctx
 
 
-def render_saturation_profile(df, samples):
-    profile_type_map = {
-        "Saturation": "general_inorganics_saturation",
-    }
-
-    fig, ax = plt.subplots(figsize=(4, 6))
-
-    for idx, (profile_type, colname) in enumerate(profile_type_map.items()):
-        for sample in samples:
-            sample_data = df.loc[
-                df["sample_id"] == sample,
-                ["z", colname],
-            ].apply(pd.to_numeric, errors="coerce").dropna()
-            sample_data = (
-                sample_data
-                .groupby("z", as_index=False)[colname]
-                .mean()
-                .sort_values("z")
-            )
-            x_data = sample_data["z"].to_numpy()
-            y_data = sample_data[colname].to_numpy()
-
-            if len(x_data) > 5:
-                xnew = np.linspace(x_data.min(), x_data.max(), num=200, endpoint=True)
-
-                # Plot and interpolate the data
-                cspline = PchipInterpolator(x_data, y_data)
-                interp_plot = ax.plot(cspline(xnew), xnew, '-', label=sample)
-                ax.plot(y_data, x_data, 'o', color=interp_plot[0].get_color())
-            elif len(x_data) > 0:
-                ax.plot(y_data, x_data, 's', label=sample)
-
-    ax.invert_yaxis()
-    ax.set_ylim(top=0)
-    ax.axhline(y=1.0, linestyle="--", color="black", label="1.0m")
-    ax.xaxis.set_label_position('top')
-    ax.set_xlabel("{0} (%)".format(profile_type))
-    ax.set_ylabel("Depth (mbgs)")
-    ax.grid(which='major', color='#DDDDDD', linewidth=0.8)
-    # Minor grid as well
-    ax.grid(which='minor', color='#DDDDDD', linestyle=':', linewidth=0.8)
-    ax.minorticks_on()
-    plt.tight_layout()
-    fig.legend(loc='upper left', bbox_to_anchor=(0, 0), ncol=4, frameon=False)
-    return fig
-
-def _fig_to_data_uri(fig) -> str:
-    """Serialize a matplotlib figure to a base64 PNG data URI and close it."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return "data:image/png;base64," + base64.b64encode(buf.read()).decode("ascii")
 
 
 def saturation_profile(ctx: Context) -> Context:
@@ -250,8 +194,16 @@ def saturation_profile(ctx: Context) -> Context:
     # Samples come from the saturation_profile_samples multiselect (seeded from
     # sample_ids). Default to all available samples when not provided.
     samples = ctx.params.get("saturation_profile_samples") or list(saturation_profile_df["sample_id"].unique())
-    fig = render_saturation_profile(saturation_profile_df, samples)
-    ctx.charts["saturation_profile"] = _fig_to_data_uri(fig)
+    ctx.charts["saturation_profile"] = _fig_to_data_uri(plot_profile(
+        "general_inorganics_saturation",
+        df=saturation_profile_df,
+        samples=samples,
+        depth_line=1.0,
+        depth_line_label="1.0m",
+        min_points_for_spline=5,
+        x_max=ctx.params.get("saturation_x_max"),
+        y_max=ctx.params.get("saturation_y_max"),
+    ))
 
     scatter_fig, scatter_ax = plt.subplots(figsize=(3, 3))
     scatter_ax.scatter(

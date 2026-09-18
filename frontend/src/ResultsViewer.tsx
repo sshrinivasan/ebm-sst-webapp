@@ -4,6 +4,7 @@ import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
 import { DepthSpecificTier1 } from "./components/DepthSpecificTier1";
 import { FormGrid, CollapsibleInputs } from "./components/CollapsibleInputs";
+import { ProfileChartPanel } from "./components/ProfileChartPanel";
 import { MarkdownNotes } from "./components/MarkdownNotes";
 import {
   IcSliders, IcTable, IcChart, IcAlert, IcMap, IcRefresh, IcInbox,
@@ -31,6 +32,13 @@ const NPP_PRACTITIONER_NOTES_MARKDOWN = `* There is a minimum of three soil prof
 * When all soil profiles are not definitely downwards, groundwater measurements have been collected from at least 3 monitoring wells in similar topographic positions as the APEC, not all of which are upgradient, with at least one monitoring event from the spring, resulting in measured water table depths greater than 2 m at each well? = Practitioner to check
 * This profile assessment is imperfect, and all soil profiles should be manually assessed. Potentially ambiguous profile types need to be manually designated as this evaluation cannot do that.`;
 
+// Per-chart X/Y axis max param names for the Tier 1 graphs (EC / SAR / Chloride).
+const TIER1_AXIS_PARAMS: Record<string, { x: string; y: string }> = {
+ tier1_graph_ec: { x: "tier1_ec_x_max", y: "tier1_ec_y_max" },
+ tier1_graph_sar: { x: "tier1_sar_x_max", y: "tier1_sar_y_max" },
+ tier1_graph_chloride: { x: "tier1_cl_x_max", y: "tier1_cl_y_max" },
+};
+
 /**
  * Results viewer for the wizard's "Workflows" step.
  *
@@ -54,6 +62,7 @@ export default function ResultsViewer({
   const [bgChloridePlot, setBgChloridePlot] = useState(1);
   const [sstChartsSub, setSstChartsSub] = useState<"chloride" | "sodium" | "sar">("chloride");
   const [t1Sub, setT1Sub] = useState<"graphs" | "variable">("graphs");
+  const [t1VarPlot, setT1VarPlot] = useState(1);
   const [textureSub, setTextureSub] = useState<"tables" | "profile">("tables");
   const [nppSub, setNppSub] = useState<"tables" | "charts">("tables");
   const [nppTable, setNppTable] = useState<string>("npp_test_results");
@@ -166,25 +175,18 @@ export default function ResultsViewer({
                 <>
                   {!result && <NeedFile />}
                   {result && (
-                    <div className="card">
-                      <div className="card-head"><div className="card-title">Tier 1 Graphs inputs</div></div>
-                      <div style={{ padding: 24 }}>
-                        <FormGrid inputs={schema.inputs.filter((i) => i.name === "tier1_graph_samples")}
-                          params={params} options={options} setParam={setParam} />
-                      </div>
-                    </div>
+                    <CollapsibleInputs title="Tier 1 Graphs inputs"
+                      inputs={schema.inputs.filter((i) => i.name === "tier1_graph_samples")}
+                      params={params} options={options} setParam={setParam} />
                   )}
                   {result && (
                     <div className="chart-row">
                       {schema.charts
                         .filter((c) => c.tab === "tier1_graphs" && !c.var.startsWith("tier1_variable_graph"))
                         .map((c) => (
-                          <div className="card chart-card" key={c.var}>
-                            <div className="card-head"><div className="card-title">{c.label}</div></div>
-                            {result?.charts[c.var]
-                              ? <img className="chart-img" src={result.charts[c.var]} alt={c.label} />
-                              : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Select samples and run to render.</div>}
-                          </div>
+                          <ProfileChartPanel key={c.var} chartKey={c.var} title={c.label}
+                            xMaxParam={TIER1_AXIS_PARAMS[c.var]?.x} yMaxParam={TIER1_AXIS_PARAMS[c.var]?.y}
+                            schema={schema} params={params} options={options} setParam={setParam} result={result} />
                         ))}
                     </div>
                   )}
@@ -193,37 +195,16 @@ export default function ResultsViewer({
 
               {t1Sub === "variable" && result && (
                 <>
-                  {[1, 2, 3].map((n) => {
-                    const mainInputs = schema.inputs.filter((i) =>
-                      [`variable_graph_${n}`, `variable_graph${n}_boreholes`].includes(i.name)
-                    ).sort((a, b) => a.name.length - b.name.length);
-                    const axisInputs = schema.inputs.filter((i) =>
-                      [`variable_graph${n}_x_max`, `variable_graph${n}_y_max`].includes(i.name)
-                    );
-                    return (
-                      <div className="card" key={`inputs-${n}`}>
-                        <div className="card-head"><div className="card-title">Graph {n}</div></div>
-                        <div style={{ padding: 24 }}>
-                          <FormGrid inputs={mainInputs} params={params} options={options} setParam={setParam} />
-                          {axisInputs.length > 0 && (
-                            <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-                              {axisInputs.map((inp) => (
-                                <div key={inp.name} style={{ flex: "0 0 130px" }}>
-                                  <Field spec={inp} value={params[inp.name]} options={options} params={params}
-                                    onChange={(v) => setParam(inp.name, v)} />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div className="chart-row" style={{ justifyContent: "flex-start" }}>
+                  <div className="subtabs">
                     {[1, 2, 3].map((n) => (
-                      <VariableGraphPanel key={n} n={n} result={result} />
+                      <button key={n} className={`subtab ${t1VarPlot === n ? "active" : ""}`}
+                        onClick={() => setT1VarPlot(n)}>
+                        Graph {n}
+                      </button>
                     ))}
                   </div>
+                  <VariableGraphPanel n={t1VarPlot} schema={schema} params={params} options={options}
+                    setParam={setParam} result={result} />
                 </>
               )}
             </div>
@@ -308,12 +289,9 @@ export default function ResultsViewer({
 
               {textureSub === "profile" && result && (
                 <div className="chart-row">
-                  <div className="card chart-card">
-                    <div className="card-head"><div className="card-title">Saturation Profile</div></div>
-                    {result?.charts["saturation_profile"]
-                      ? <img className="chart-img texture-chart-img" src={result.charts["saturation_profile"]} alt="Saturation Profile" />
-                      : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Select samples and run to render.</div>}
-                  </div>
+                  <ProfileChartPanel chartKey="saturation_profile" title="Saturation Profile"
+                    xMaxParam="saturation_x_max" yMaxParam="saturation_y_max"
+                    schema={schema} params={params} options={options} setParam={setParam} result={result} />
                   <div className="card chart-card">
                     <div className="card-head"><div className="card-title">Sand / Clay Scatter</div></div>
                     {result?.charts["sand_clay_scatter"]
@@ -329,12 +307,13 @@ export default function ResultsViewer({
           {active === "95_percentile" && (
             <div className="stack fade-in">
               {!result && <NeedFile />}
-              {tabInputs.filter((i) => i.name !== "npp_practitioner_notes").length > 0 && (
-                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs.filter((i) => i.name !== "npp_practitioner_notes")} params={params} options={options} setParam={setParam} />
+              {tabInputs.filter((i) => i.name !== "npp_practitioner_notes" && !i.name.endsWith("_x_max") && !i.name.endsWith("_y_max")).length > 0 && (
+                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs.filter((i) => i.name !== "npp_practitioner_notes" && !i.name.endsWith("_x_max") && !i.name.endsWith("_y_max"))} params={params} options={options} setParam={setParam} />
               )}
               {result && (
                 <P95Panel result={result} options={options} subarea={p95Subarea} setSubarea={setP95Subarea}
-                  sub={p95Sub} setSub={setP95Sub} view={p95View} setView={setP95View} />
+                  sub={p95Sub} setSub={setP95Sub} view={p95View} setView={setP95View}
+                  schema={schema} params={params} setParam={setParam} />
               )}
             </div>
           )}
@@ -343,8 +322,8 @@ export default function ResultsViewer({
           {active === "npp" && (
             <div className="stack fade-in">
               {!result && <NeedFile />}
-              {tabInputs.filter((i) => i.name !== "npp_practitioner_notes").length > 0 && (
-                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs.filter((i) => i.name !== "npp_practitioner_notes")} params={params} options={options} setParam={setParam} />
+              {tabInputs.filter((i) => i.name !== "npp_practitioner_notes" && !i.name.endsWith("_x_max") && !i.name.endsWith("_y_max")).length > 0 && (
+                <CollapsibleInputs title={`${tab.title} inputs`} inputs={tabInputs.filter((i) => i.name !== "npp_practitioner_notes" && !i.name.endsWith("_x_max") && !i.name.endsWith("_y_max"))} params={params} options={options} setParam={setParam} />
               )}
               {result && options["npp_suitable"] != null && (
                 <div className={`npp-suitability npp-suitability-${String(options["npp_suitable"]).toLowerCase()}`}>
@@ -401,12 +380,9 @@ export default function ResultsViewer({
                   {nppSub === "charts" && (
                     <div className="chart-row">
                       {schema.charts.filter((c) => c.tab === "npp").map((c) => (
-                        <div className="card chart-card" key={c.var}>
-                          <div className="card-head"><div className="card-title">{c.label}</div></div>
-                          {result.charts[c.var]
-                            ? <img className="chart-img npp-chart-img" src={result.charts[c.var]} alt={c.label} />
-                            : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Select samples and run to render.</div>}
-                        </div>
+                        <ProfileChartPanel key={c.var} chartKey={c.var} title={c.label}
+                          xMaxParam="npp_x_max" yMaxParam="npp_y_max"
+                          schema={schema} params={params} options={options} setParam={setParam} result={result} />
                       ))}
                     </div>
                   )}
@@ -433,7 +409,7 @@ export default function ResultsViewer({
                   prefix="sst_cl_profile_chloride_"
                   title="SST Chloride"
                   inputs={schema.inputs.filter((i) =>
-                    ["sst_cl_x_axis_max", "chloride_additional_guidelines", "chloride_plot_config"].includes(i.name)
+                    ["sst_cl_x_axis_max", "sst_cl_y_axis_max", "chloride_additional_guidelines", "chloride_plot_config"].includes(i.name)
                   )}
                   schema={schema} params={params} options={options} setParam={setParam} result={result}
                 />
@@ -444,7 +420,7 @@ export default function ResultsViewer({
                   prefix="sst_cl_profile_sodium_"
                   title="SST Sodium"
                   inputs={schema.inputs.filter((i) =>
-                    ["sst_na_x_axis_max", "na_additional_guidelines", "na_plot_config"].includes(i.name)
+                    ["sst_na_x_axis_max", "sst_na_y_axis_max", "na_additional_guidelines", "na_plot_config"].includes(i.name)
                   )}
                   schema={schema} params={params} options={options} setParam={setParam} result={result}
                 />
@@ -455,7 +431,7 @@ export default function ResultsViewer({
                   prefix="sst_cl_profile_sar_"
                   title="SST SAR"
                   inputs={schema.inputs.filter((i) =>
-                    ["sst_sar_x_axis_max", "sar_additional_guidelines", "sar_plot_config"].includes(i.name)
+                    ["sst_sar_x_axis_max", "sst_sar_y_axis_max", "sar_additional_guidelines", "sar_plot_config"].includes(i.name)
                   )}
                   schema={schema} params={params} options={options} setParam={setParam} result={result}
                 />
@@ -647,29 +623,21 @@ function SstProfileSubtab({ prefix, title, inputs, schema, params, options, setP
   }, [options]);
 
   const xMax = inputs.find((i) => i.name.endsWith("_x_axis_max"));
+  const yMax = inputs.find((i) => i.name.endsWith("_y_axis_max"));
   const guidelines = inputs.find((i) => i.name.endsWith("_additional_guidelines"));
   const plotConfig = inputs.find((i) => i.name.endsWith("_plot_config"));
 
   return (
     <>
-      {/* Condensed Inputs panel: Additional Guidelines + X Axis Max on one row,
-          then the Plot Config table full-width below (its multiselects need
-          the room). */}
+      {/* Condensed Inputs panel: Additional Guidelines + Plot Config (the X Axis
+          Max lives in each chart's own config bar). */}
       {inputs.length > 0 && (
         <CollapsibleInputs title={`${title} inputs`} params={params} options={options} setParam={setParam}>
           <div className="sst-inputs">
-            <div className="sst-inputs-row">
-              {guidelines && (
-                <Field spec={guidelines} value={params[guidelines.name]} options={options} params={params}
-                  onChange={(v) => setParam(guidelines.name, v)} />
-              )}
-              {xMax && (
-                <div className="sst-inputs-xmax">
-                  <Field spec={xMax} value={params[xMax.name]} options={options} params={params}
-                    onChange={(v) => setParam(xMax.name, v)} />
-                </div>
-              )}
-            </div>
+            {guidelines && (
+              <Field spec={guidelines} value={params[guidelines.name]} options={options} params={params}
+                onChange={(v) => setParam(guidelines.name, v)} />
+            )}
             {plotConfig && (
               <Field spec={plotConfig} value={params[plotConfig.name]} options={options} params={params}
                 onChange={(v) => setParam(plotConfig.name, v)} />
@@ -686,11 +654,10 @@ function SstProfileSubtab({ prefix, title, inputs, schema, params, options, setP
               const slug = key.slice(prefix.length);
               const subarea = slugToName[slug] ?? slug.replace(/_/g, " ");
               return (
-                <div className="card chart-card sst-cl-chart-card" key={key}>
-                  {result?.charts[key]
-                    ? <img className="chart-img sst-cl-chart-img" src={result.charts[key]} alt={`${title} ${subarea}`} />
-                    : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render.</div>}
-                </div>
+                <ProfileChartPanel key={key} chartKey={key} title={`${title} ${subarea}`}
+                  xMaxParam={xMax?.name} yMaxParam={yMax?.name}
+                  schema={schema} params={params} options={options} setParam={setParam} result={result}
+                  cardClassName="sst-cl-chart-card" />
               );
             })}
           {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith(prefix)).length === 0 && (
@@ -706,20 +673,34 @@ function SstProfileSubtab({ prefix, title, inputs, schema, params, options, setP
   );
 }
 
-function VariableGraphPanel({ n, result }: {
-  n: number; result: RunResult | null;
+function VariableGraphPanel({ n, schema, params, options, setParam, result }: {
+  n: number; schema: Schema; params: Params; options: OptionMap;
+  setParam: (name: string, v: unknown) => void; result: RunResult | null;
 }) {
-  const chart = result?.charts[`tier1_variable_graph_${n}`];
+  const paramInput = schema.inputs.find((i) => i.name === `variable_graph_${n}`);
+  const boreholes = schema.inputs.find((i) => i.name === `variable_graph${n}_boreholes`);
 
   return (
-    <div className="card chart-card" style={{ flex: "1 1 calc(33.333% - 16px)", maxWidth: "calc(33.333% - 16px)" }}>
-      <div className="card-head">
-        <div className="card-title">Parameter {n}</div>
-      </div>
-      {chart
-        ? <img className="chart-img" src={chart} alt={`Parameter ${n}`} />
-        : <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Choose a parameter and boreholes, then run.</div>}
-    </div>
+    <>
+      {/* Standard Inputs collapsible (expanded by default): parameter + boreholes. */}
+      <CollapsibleInputs title={`Graph ${n} inputs`} params={params} options={options} setParam={setParam} defaultOpen>
+        <div className="form-grid-4">
+          {paramInput && (
+            <Field spec={paramInput} value={params[paramInput.name]} options={options} params={params}
+              onChange={(v) => setParam(paramInput.name, v)} />
+          )}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          {boreholes && (
+            <Field spec={boreholes} value={params[boreholes.name]} options={options} params={params}
+              onChange={(v) => setParam(boreholes.name, v)} />
+          )}
+        </div>
+      </CollapsibleInputs>
+      <ProfileChartPanel chartKey={`tier1_variable_graph_${n}`} title={`Graph ${n}`}
+        xMaxParam={`variable_graph${n}_x_max`} yMaxParam={`variable_graph${n}_y_max`}
+        schema={schema} params={params} options={options} setParam={setParam} result={result} />
+    </>
   );
 }
 
@@ -731,7 +712,7 @@ const P95_SUBT: { key: string; label: string; prefix?: string }[] = [
   { key: "profile", label: "Chloride Profile" },
 ];
 
-function P95Panel({ result, options, subarea, setSubarea, sub, setSub, view, setView }: {
+function P95Panel({ result, options, subarea, setSubarea, sub, setSub, view, setView, schema, params, setParam }: {
   result: RunResult | null;
   options: OptionMap;
   subarea: string | null;
@@ -740,9 +721,11 @@ function P95Panel({ result, options, subarea, setSubarea, sub, setSub, view, set
   setSub: (s: string) => void;
   view: "data" | "subareas";
   setView: (v: "data" | "subareas") => void;
+  schema: Schema;
+  params: Params;
+  setParam: (name: string, v: unknown) => void;
 }) {
   const outputs = result?.outputs ?? {};
-  const charts = result?.charts ?? {};
 
   // slug -> display name map provided by the backend (authoritative source of
   // the subarea list). Keys are the slugs used in the p95_ output keys.
@@ -756,7 +739,6 @@ function P95Panel({ result, options, subarea, setSubarea, sub, setSub, view, set
   const tableVar = activeSubarea ? `${activeSub.prefix}${activeSubarea}` : null;
   const chartVar = activeSubarea ? `p95_chloride_profile_${activeSubarea}` : null;
   const table = tableVar ? outputs[tableVar] : undefined;
-  const chart = chartVar ? charts[chartVar] : undefined;
   const dataTable = outputs["percentile_95_subarea_data"];
 
   if (subareas.length === 0) {
@@ -811,12 +793,9 @@ function P95Panel({ result, options, subarea, setSubarea, sub, setSub, view, set
             ))}
           </div>
           {activeSub.key === "profile" ? (
-            <div className="card chart-card">
-              <div className="card-head"><div className="card-title">Chloride Profile</div></div>
-              {chart
-                ? <img className="chart-img p95-chart-img" src={chart} alt="Chloride Profile" />
-                : <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>Run to render.</div>}
-            </div>
+            <ProfileChartPanel chartKey={chartVar ?? ""} title="Chloride Profile"
+              xMaxParam="p95_x_max" yMaxParam="p95_y_max"
+              schema={schema} params={params} options={options} setParam={setParam} result={result} />
           ) : (
             <div className="card">
               <div className="card-head">

@@ -17,13 +17,9 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-import base64
-import io
 import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.interpolate import PchipInterpolator
 from .context import Context, InputValidationError
+from .tier1_charts import plot_profile, _fig_to_data_uri
 
 # Background APEC labels (same set used by the TDS workflow).
 background_apec_labels = ["Background", "APEC Background", "BKGD"]
@@ -40,61 +36,6 @@ npp_columns = [
     "soluble_ions_carbonate_mg_kg", "soluble_ions_bicarbonate_mg_kg",
 ]
 
-def _fig_to_data_uri(fig) -> str:
-    """Serialize a matplotlib figure to a base64 PNG data URI and close it."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return "data:image/png;base64," + base64.b64encode(buf.read()).decode("ascii")
-
-
-def render_npp_profile(df, samples) -> plt.Figure:
-    """Render the NPP vertical profile (Sulphate vs depth) and return the figure."""
-    profile_type_map = {
-        "Sulphate": "soluble_ions_sulphate_mg_kg",
-        # "Chloride": "soluble_ions_chloride_mg_kg",
-    }
-
-    fig, ax = plt.subplots(figsize=(4, 6))
-
-    for _idx, (profile_type, colname) in enumerate(profile_type_map.items()):
-        for sample in samples:
-            sample_data = df.loc[
-                df["sample_id"] == sample, ["z", colname]
-            ].apply(pd.to_numeric, errors="coerce").dropna()
-            x_data = sample_data["z"].to_numpy()
-            y_data = sample_data[colname].to_numpy()
-
-            if len(x_data) > 1:
-                # Sort x_data and rearrange y_data accordingly
-                sorted_indices = np.argsort(x_data)
-                x_data_sorted = np.array(x_data)[sorted_indices]
-                y_data_sorted = np.array(y_data)[sorted_indices]
-
-                xnew = np.linspace(x_data.min(), x_data.max(), num=200, endpoint=True)
-
-                # Plot and interpolate the data
-                cspline = PchipInterpolator(x_data_sorted, y_data_sorted)
-                interp_plot = ax.plot(cspline(xnew), xnew, '-', label=sample)
-                ax.plot(y_data, x_data, 'o', color=interp_plot[0].get_color())
-            else:
-                ax.plot(y_data, x_data, 's', label=sample)
-
-    ax.invert_yaxis()
-    ax.set_ylim(top=0)
-    ax.axhline(y=1.0, linestyle="--", color="black", label="1.0 m")
-    ax.xaxis.set_label_position('top')
-    ax.set_xlabel("{0} (mg/kg)".format(profile_type))
-    ax.set_ylabel("Depth (mbgs)")
-    ax.grid(which='major', color='#DDDDDD', linewidth=0.8)
-    # Minor grid as well
-    ax.grid(which='minor', color='#DDDDDD', linestyle=':', linewidth=0.8)
-    ax.minorticks_on()
-    ax.set_xlim([0, None])
-    plt.tight_layout()
-    fig.legend(loc='upper left', bbox_to_anchor=(0, 0), ncol=4, frameon=False)
-    return fig
 
 
 def seed_npp_options(ctx: Context) -> Context:
@@ -171,11 +112,17 @@ def npp_analysis(ctx: Context) -> Context:
 
     ctx.frames["npp_selected_data"] = _build_npp_display_df(filtered_npp_df, npp_samples)
     
-    # Profile graphs: render the Sulphate vertical profile for the selected
-    # samples and store it as a PNG data URI, matching the chart pattern used by
-    # percentile_95 (ctx.charts[name] -> data URI).
-    npp_profile_fig = render_npp_profile(filtered_npp_df, npp_samples)
-    ctx.charts["npp_profile"] = _fig_to_data_uri(npp_profile_fig)
+    # Profile graph: render the Sulphate vertical profile for the selected
+    # samples and store it as a PNG data URI (ctx.charts[name] -> data URI).
+    ctx.charts["npp_profile"] = _fig_to_data_uri(plot_profile(
+        "soluble_ions_sulphate_mg_kg",
+        df=filtered_npp_df,
+        samples=npp_samples,
+        depth_line=1.0,
+        depth_line_label="1.0 m",
+        x_max=ctx.params.get("npp_x_max"),
+        y_max=ctx.params.get("npp_y_max"),
+    ))
 
     return ctx
 

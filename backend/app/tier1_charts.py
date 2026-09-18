@@ -17,8 +17,7 @@ import matplotlib
 matplotlib.use("Agg")  # headless: render to buffer, never open a window
 import matplotlib.pyplot as plt
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import make_interp_spline, interp1d, PchipInterpolator
+from scipy.interpolate import PchipInterpolator
 from .loader import cleaned_name_to_excel_header_map, display_name_to_cleaned_name_map
 from .context import Context
 import pandas as pd
@@ -125,9 +124,21 @@ variable_graph_options = [
 ]
 
 def plot_profile(colname, df, samples, reference_lines=None, title=None, reference_label="Guideline",
-                 reference_color=None, x_max=None, y_max=None):
-    xlabel = cleaned_name_to_excel_header_map.get(colname, colname)
-    fig, ax = plt.subplots(figsize=(4, 6), facecolor='white')
+                 reference_color=None, x_max=None, y_max=None, xlabel=None, depth_line=1.5,
+                 depth_line_label=None, min_points_for_spline=1, ax=None):
+    """Render one vertical depth profile (a single plot in a panel).
+
+    Plots ``colname`` vs depth (z) for each sample in ``samples``, with optional
+    reference lines, a horizontal depth line, and x/y axis limits. When ``ax`` is
+    provided the profile is drawn into that existing axes (for multi-panel
+    composition); otherwise a new figure is created and returned.
+    """
+    xlabel = xlabel or cleaned_name_to_excel_header_map.get(colname, colname)
+    own_figure = ax is None
+    if own_figure:
+        fig, ax = plt.subplots(figsize=(4, 6), facecolor='white')
+    else:
+        fig = ax.figure
     ax.set_facecolor('white')
 
     for sample in samples:
@@ -145,7 +156,7 @@ def plot_profile(colname, df, samples, reference_lines=None, title=None, referen
         x_data = sample_data["z"].to_numpy()
         y_data = sample_data[colname].to_numpy()
 
-        if len(x_data) > 1:
+        if len(x_data) > min_points_for_spline:
             xnew = np.linspace(x_data.min(), x_data.max(), num=200, endpoint=True)
             cspline = PchipInterpolator(x_data, y_data)
             interp_plot = ax.plot(cspline(xnew), xnew, '-', label=sample)
@@ -202,9 +213,12 @@ def plot_profile(colname, df, samples, reference_lines=None, title=None, referen
     ax.grid(which='minor', color='#DDDDDD', linestyle=':', linewidth=0.8)
     ax.minorticks_on()
     ax.set_xlim([0, float(x_max) if x_max not in (None, "") and float(x_max) > 0 else None])
-    ax.axhline(y=1.5, color='black', linestyle='--', linewidth=2, zorder=5)
-    plt.tight_layout()
-    fig.legend(loc='upper left', bbox_to_anchor=(0, 0), ncol=4, frameon=False)
+    if depth_line is not None:
+        ax.axhline(y=depth_line, color='black', linestyle='--', linewidth=2, zorder=5,
+                   label=depth_line_label)
+    if own_figure:
+        plt.tight_layout()
+        fig.legend(loc='upper left', bbox_to_anchor=(0, 0), ncol=4, frameon=False)
     return fig
 
 
@@ -242,11 +256,14 @@ def tier1_charts(ctx: Context) -> Context:
     ab_tier1_chloride_ref_lines = [("0-{0}".format(z_max), ab_tier1_chloride_ref_value)]
 
     fig_ec = plot_profile("general_inorganics_ec_ds_m", df=soil, samples=selected,
-                          reference_lines=[ab_scarg_ec_ref_lines], title="EC")
+                          reference_lines=[ab_scarg_ec_ref_lines], title="EC",
+                          x_max=ctx.params.get("tier1_ec_x_max"), y_max=ctx.params.get("tier1_ec_y_max"))
     fig_sar = plot_profile("general_inorganics_sar", df=soil, samples=selected,
-                           reference_lines=[ab_scarg_sar_ref_lines], title="SAR")
+                           reference_lines=[ab_scarg_sar_ref_lines], title="SAR",
+                           x_max=ctx.params.get("tier1_sar_x_max"), y_max=ctx.params.get("tier1_sar_y_max"))
     fig_cl = plot_profile("soluble_ions_chloride_mg_kg", df=soil, samples=selected,
-                          reference_lines=[ab_tier1_chloride_ref_lines], title="Chloride")
+                          reference_lines=[ab_tier1_chloride_ref_lines], title="Chloride",
+                          x_max=ctx.params.get("tier1_cl_x_max"), y_max=ctx.params.get("tier1_cl_y_max"))
 
     ctx.charts["tier1_graph_ec"] = _fig_to_data_uri(fig_ec)
     ctx.charts["tier1_graph_sar"] = _fig_to_data_uri(fig_sar)

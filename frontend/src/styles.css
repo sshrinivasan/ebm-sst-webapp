@@ -246,32 +246,49 @@ table.data tbody tr:last-child td { border-bottom: none; }
 /* side-by-side chart cards (e.g. Tier 1 depth profiles) */
 .chart-row { display: flex; gap: 24px; flex-wrap: wrap; }
 .chart-row .chart-card { flex: 1 1 320px; min-width: 300px; }
-.chart-row .chart-img { margin: 16px auto; max-width: 100%; }
+/* All vertical-profile charts (Tier 1, SST, NPP, Texture) render at the same
+   510px width. */
+.chart-row .chart-img { margin: 16px auto; max-width: 510px; }
 
-/* Texture charts (saturation profile + sand/clay scatter): 75% of the default
-   680px chart width, so they display smaller than standard charts. More specific
-   than .chart-row .chart-img so it wins. */
-.chart-row .texture-chart-img { max-width: 510px; }
+/* All vertical-profile charts render at the same 510px width (the shared
+   ProfileChartPanel component applies .profile-chart-img). */
+.profile-chart-img { max-width: 510px; }
 
-/* 95th Percentile chloride profile: portrait figure, capped so it doesn't
-   render oversized. More specific than .chart-img so it wins. */
-.p95-chart-img { max-width: 510px; }
+/* Thin, collapsible "plot config" bar above a profile chart (X/Y max + any
+   chart-specific inputs). Collapsed it is just a slim toggle row. */
+.profile-chart-config { border-bottom: 1px solid var(--line-2); }
+.profile-chart-config-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 4px 12px; background: #f8fbfc; border: none; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--muted); font-family: inherit;
+  text-align: left;
+}
+.profile-chart-config-toggle:hover { color: var(--ink-2); }
+.profile-chart-config-chev { width: 12px; height: 12px; transition: transform 0.15s; }
+.profile-chart-config-chev.open { transform: rotate(90deg); }
+.profile-chart-controls {
+  display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: flex-end;
+  padding: 4px 12px; background: #f8fbfc;
+}
+.profile-chart-axis {
+  display: flex; gap: 6px; align-items: flex-end; margin-left: auto;
+}
+.profile-chart-axis .field { flex: 0 0 70px; gap: 2px; }
+.profile-chart-axis .field label { font-size: 10.5px; }
+.profile-chart-axis .field .control {
+  width: 100%; padding: 3px 6px; font-size: 12px; min-height: 0;
+}
 
 /* SST Chloride profile charts: fixed-size grid so every chart renders at the
    same size regardless of how many subareas there are. The cards stay a fixed
    width (no flex-grow stretch) and the portrait PNG is capped, keeping the
    layout a consistent wrap grid whether there are 1, 2, 3, or 5 subareas. */
 .chart-row .sst-cl-chart-card {
-  flex: 0 0 340px;       /* fixed basis, no grow/shrink */
-  width: 340px;
-  max-width: 340px;
+  flex: 0 0 560px;       /* fixed basis, no grow/shrink */
+  width: 560px;
+  max-width: 560px;
   min-width: 0;
 }
-.chart-row .sst-cl-chart-img { max-width: 300px; margin: 16px auto; }
-
-/* NPP sulphate profile: portrait figure, capped so it renders the same size as
-   the other profile charts (.texture-chart-img / .p95-chart-img). */
-.chart-row .npp-chart-img { max-width: 510px; }
 
 /* ---------- Forms ---------- */
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 26px; }

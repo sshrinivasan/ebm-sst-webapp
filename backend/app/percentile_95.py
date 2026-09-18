@@ -1,10 +1,8 @@
 from .context import Context, InputValidationError
-import base64
-import io
-import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.interpolate import PchipInterpolator
+import pandas as pd
 import numpy as np
+from .tier1_charts import plot_profile, _fig_to_data_uri
 
 percentile_headers = {
     'sample_id': 'Location',
@@ -76,15 +74,8 @@ def _slugify(name: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in str(name).strip().lower()).strip("_")
 
 
-def _fig_to_data_uri(fig) -> str:
-    """Serialize a matplotlib figure to a base64 PNG data URI and close it."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return "data:image/png;base64," + base64.b64encode(buf.read()).decode("ascii")
 
-def build_subarea_chloride_results(groups_with_subarea, chloride_reference_value):
+def build_subarea_chloride_results(groups_with_subarea, chloride_reference_value, x_max=None, y_max=None):
     plt.ioff()
 
     # Group by 'subarea'
@@ -252,59 +243,25 @@ def build_subarea_chloride_results(groups_with_subarea, chloride_reference_value
             vertical_mass_results_dict[subarea] = vertical_mass_display
             stats_1_15_dict[subarea] = group_df_1_1_5
 
-            # --- See if this can be replaced by plot_profile
-            # Chloride profile
-            profile_type_map = {
-                "Chloride (mg/kg)": "soluble_ions_chloride_mg_kg",
-            }
-
-            fig, ax = plt.subplots(figsize=(4, 6))
-
-            subarea_chloride_samples = group_df["sample_id"].unique()
-            for idx, (profile_type, colname) in enumerate(profile_type_map.items()):
-                for sample in subarea_chloride_samples:
-                    sample_data = group_df.loc[
-                        group_df["sample_id"] == sample,
-                        ["z", colname],
-                    ].apply(pd.to_numeric, errors="coerce").dropna()
-                    sample_data = (
-                        sample_data
-                        .groupby("z", as_index=False)[colname]
-                        .mean()
-                        .sort_values("z")
-                    )
-                    x_data = sample_data["z"].to_numpy()
-                    y_data = sample_data[colname].to_numpy()
-
-                    if len(x_data) > 2:
-                        xnew = np.linspace(x_data.min(), x_data.max(), num=200, endpoint=True)
-
-                        # Plot and interpolate the data
-                        cspline = PchipInterpolator(x_data, y_data)
-                        interp_plot = ax.plot(cspline(xnew), xnew, '-', label=sample)
-                        ax.plot(y_data, x_data, 'o', color=interp_plot[0].get_color())
-                    elif len(x_data) > 0:
-                        ax.plot(y_data, x_data, 's', label=sample)
-
-            ax.invert_yaxis()
-            ax.set_ylim(group_df["z"].max(), 0)
-            ax.axhline(y=1.5, linestyle="--", color="black", label="1.5 m")
-            ax.axvline(x=chloride_reference_value, linestyle="--", color="red", label=f"{chloride_reference_value} mg/kg")
-            ax.xaxis.set_label_position('top')
-            # TODO: Why percent here?
-            ax.set_xlabel("{0}".format(profile_type))
-            ax.set_ylabel("Depth (mbgs)")
-            ax.grid(which='major', color='#DDDDDD', linewidth=0.8)
-            # Minor grid as well
-            ax.grid(which='minor', color='#DDDDDD', linestyle=':', linewidth=0.8)
-            ax.minorticks_on()
-            # ax.set_xlim([0, None])
-            plt.tight_layout()
-            fig.legend(loc='upper left', bbox_to_anchor=(0, 0), ncol=4, frameon=False)
-            # plt.show()
-
-            # fig = plot_profile("soluble_ions_chloride_mg_kg", df=group_df, samples=subarea_chloride_samples)
-            chloride_profile_dict[subarea] = fig
+            # Chloride profile (reuses the shared plot_profile helper). The
+            # chloride guideline is a single flat value, expressed as one
+            # reference segment spanning the full plotted depth range so
+            # plot_profile draws it as a vertical line (same pattern as the
+            # Tier-1 chloride chart).
+            z_max_p95 = group_df["z"].max()
+            chloride_profile_dict[subarea] = plot_profile(
+                "soluble_ions_chloride_mg_kg",
+                df=group_df,
+                samples=group_df["sample_id"].unique(),
+                reference_lines=[[("0-{0:g}".format(z_max_p95), chloride_reference_value)]],
+                reference_label=[f"{chloride_reference_value} mg/kg"],
+                reference_color="red",
+                depth_line=1.5,
+                depth_line_label="1.5 m",
+                min_points_for_spline=2,
+                x_max=x_max,
+                y_max=y_max,
+            )
 
     return (
         subsoil_mass_results_dict,
@@ -369,7 +326,10 @@ def ninetyfifth_percentile(ctx: Context) -> Context:
         stats_1_15_dict,
         outliers_1_15_dict,
         chloride_profile_dict,
-    ) = build_subarea_chloride_results(groups_with_subarea, ctx.params["chloride_guideline"])
+    ) = build_subarea_chloride_results(
+        groups_with_subarea, ctx.params["chloride_guideline"],
+        ctx.params.get("p95_x_max"), ctx.params.get("p95_y_max"),
+    )
 
     # Check that all the keys are the same
     if not (subsoil_mass_results_dict.keys() == vertical_mass_results_dict.keys() == stats_1_15_dict.keys() == outliers_1_15_dict.keys()):
