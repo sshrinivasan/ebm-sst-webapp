@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tier 1 Charts — Interactive Mockup</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="tier1-charts-data.js"></script>
+<style>
+  :root { --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:#f8fafc; color:var(--ink); }
+  header { padding:14px 20px; background:#fff; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; }
+  header h1 { font-size:17px; margin:0; }
+  header .sub { color:var(--muted); font-size:12.5px; }
+  .layout { display:flex; gap:0; min-height:100vh; }
+  .sidebar { width:300px; background:#fff; border-right:1px solid var(--line); padding:16px; overflow-y:auto; position:sticky; top:0; align-self:flex-start; height:100vh; }
+  .main { flex:1; padding:20px; }
+  .sec { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:14px 0 6px; }
+  .bh-list { max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; padding:6px; }
+  .bh-list label { display:flex; align-items:center; gap:8px; font-size:12.5px; padding:2px 4px; cursor:pointer; }
+  .bh-list input { accent-color:var(--accent); }
+  .ctrl { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+  .ctrl label { font-size:12px; color:var(--muted); }
+  .ctrl input[type=number] { width:100%; padding:4px 6px; border:1px solid var(--line); border-radius:5px; font-size:12.5px; }
+  .ctrl .row { display:flex; gap:8px; }
+  .ctrl .row > div { flex:1; }
+  /* Portrait chart cards, like the current matplotlib plots (tall & narrow). */
+  .chart-card { background:#fff; border:1px solid var(--line); border-radius:8px; width:360px; }
+  .chart-card .head { padding:8px 12px; font-weight:600; font-size:13px; border-bottom:1px solid var(--line); }
+  .chart-card .body { height:520px; }
+  .chart-row { display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; }
+  .hint { color:var(--muted); font-size:12px; margin-top:8px; }
+  .btn { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:7px 12px; font-size:12.5px; cursor:pointer; }
+  .btn:hover { filter:brightness(1.08); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tier 1 Charts — Interactive Mockup</h1>
+  <span class="sub">ECharts · real data from 2026_filled_full.xlsm · portrait, per-borehole colors, legend at bottom</span>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sec">Boreholes</div>
+    <div class="bh-list" id="bh-list"></div>
+    <div class="sec">Chart controls</div>
+    <div id="chart-controls"></div>
+    <div style="margin-top:14px">
+      <button class="btn" onclick="resetAll()">Reset all</button>
+    </div>
+    <p class="hint">Every control re-renders instantly — no backend round-trip. Axis max/ticks, grid lines, and reference lines are all editable here.</p>
+  </aside>
+
+  <main class="main">
+    <div class="chart-row">
+      <div class="chart-card"><div class="head">EC (dS/m)</div><div class="body" id="chart-ec"></div></div>
+      <div class="chart-card"><div class="head">SAR</div><div class="body" id="chart-sar"></div></div>
+      <div class="chart-card"><div class="head">Chloride (mg/kg)</div><div class="body" id="chart-cl"></div></div>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+const DATA = window.TIER1_DATA;
+const SAMPLES = DATA.samples;
+const SCARG = DATA.scarg;
+const CL_TIER1 = DATA.chloride_tier1;
+const BOREHOLES = DATA.sample_ids;
+
+// Distinct color per borehole (like the current matplotlib plots).
+const PALETTE = ["#2563eb","#16a34a","#dc2626","#f59e0b","#8b5cf6","#06b6d4",
+                 "#ec4899","#84cc16","#f97316","#14b8a6","#a855f7","#64748b",
+                 "#0d9488","#e11d48","#7c3aed","#ca8a04"];
+const bhColor = Object.fromEntries(BOREHOLES.map((bh, i) => [bh, PALETTE[i % PALETTE.length]]));
+
+const CHARTS = {
+  ec: { title: "EC (dS/m)", field: "general_inorganics_ec_ds_m", xLabel: "EC (dS/m)",
+        xMax: 4, yMax: 12, xTick: 1, yTick: 2, xSub: 4, ySub: 4, grid: true, ref: true, refValue: null },
+  sar: { title: "SAR", field: "general_inorganics_sar", xLabel: "SAR",
+         xMax: 20, yMax: 12, xTick: 5, yTick: 2, xSub: 4, ySub: 4, grid: true, ref: true, refValue: null },
+  cl:  { title: "Chloride (mg/kg)", field: "soluble_ions_chloride_mg_kg", xLabel: "Chloride (mg/kg)",
+         xMax: 500, yMax: 12, xTick: 100, yTick: 2, xSub: 4, ySub: 4, grid: true, ref: true, refValue: CL_TIER1 },
+};
+
+let selected = new Set(BOREHOLES);
+const charts = {};
+
+function buildSidebar() {
+  const bhList = document.getElementById("bh-list");
+  bhList.innerHTML = BOREHOLES.map(bh =>
+    `<label><input type="checkbox" data-bh="${bh}" ${selected.has(bh) ? "checked" : ""}>
+       <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${bhColor[bh]}"></span> ${bh}</label>`
+  ).join("");
+  bhList.querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      if (inp.checked) selected.add(inp.dataset.bh); else selected.delete(inp.dataset.bh);
+      renderAll();
+    });
+  });
+
+  const wrap = document.getElementById("chart-controls");
+  wrap.innerHTML = Object.keys(CHARTS).map(key => {
+    const c = CHARTS[key];
+    return `
+      <div class="sec">${c.title}</div>
+      <div class="ctrl">
+        <div class="row">
+          <div><label>X max</label><input type="number" data-c="${key}" data-k="xMax" value="${c.xMax}" min="0" step="any"></div>
+          <div><label>Y max</label><input type="number" data-c="${key}" data-k="yMax" value="${c.yMax}" min="0" step="any"></div>
+        </div>
+        <div class="row">
+          <div><label>Main grid X</label><input type="number" data-c="${key}" data-k="xTick" value="${c.xTick}" min="0" step="any"></div>
+          <div><label>Main grid Y</label><input type="number" data-c="${key}" data-k="yTick" value="${c.yTick}" min="0" step="any"></div>
+        </div>
+        <div class="row">
+          <div><label>Sub grid X</label><input type="number" data-c="${key}" data-k="xSub" value="${c.xSub}" min="0" step="1"></div>
+          <div><label>Sub grid Y</label><input type="number" data-c="${key}" data-k="ySub" value="${c.ySub}" min="0" step="1"></div>
+        </div>
+        <div class="row">
+          <div><label>Grid</label><input type="checkbox" data-c="${key}" data-k="grid" ${c.grid ? "checked" : ""}></div>
+          <div><label>Reference line</label><input type="checkbox" data-c="${key}" data-k="ref" ${c.ref ? "checked" : ""}></div>
+          <div><label>Ref value</label><input type="number" data-c="${key}" data-k="refValue" value="${c.refValue ?? ""}" step="any"></div>
+        </div>
+      </div>`;
+  }).join("");
+
+  wrap.querySelectorAll("input").forEach(inp => {
+    const key = inp.dataset.c, k = inp.dataset.k;
+    const evt = inp.type === "checkbox" ? "change" : "input";
+    inp.addEventListener(evt, () => {
+      const c = CHARTS[key];
+      if (inp.type === "checkbox") c[k] = inp.checked;
+      else if (k === "refValue") c[k] = inp.value === "" ? null : Number(inp.value);
+      else c[k] = Number(inp.value);
+      renderAll();
+    });
+  });
+}
+
+// Return [x, y] array pairs — the most reliable ECharts format for value axes.
+function seriesFor(bh, field) {
+  return SAMPLES
+    .filter(s => s.sample_id === bh && s[field] != null)
+    .map(s => [s[field], s.z]);
+}
+
+function scargSegments(field) {
+  const pts = [];
+  SCARG.forEach(band => {
+    const [t, b] = band.depth.split("-").map(Number);
+    const v = field === "ec" ? band.ec : band.sar;
+    pts.push([v, t]);
+    pts.push([v, b]);
+  });
+  return pts;
+}
+
+function buildOption(key) {
+  const c = CHARTS[key];
+  const field = c.field;
+  const bhSeries = [...selected].sort().map(bh => ({
+    name: bh,
+    type: "line",
+    data: seriesFor(bh, field),
+    smooth: true,          // interpolate through the points (like the backend's spline)
+    showSymbol: true,
+    symbol: "circle",
+    symbolSize: 5,
+    lineStyle: { width: 2, color: bhColor[bh] },
+    itemStyle: { color: bhColor[bh] },
+    emphasis: { focus: "series" },
+  }));
+  const series = [...bhSeries];
+
+  if (c.ref) {
+    if (key === "cl") {
+      const v = c.refValue != null ? c.refValue : CL_TIER1;
+      // Vertical reference line as a series so it appears in the legend
+      // (consistent with the SCARG guideline on the EC/SAR charts).
+      series.push({
+        name: "Tier 1 Guideline",
+        type: "line",
+        data: [[v, 0], [v, c.yMax]],
+        showSymbol: false,
+        lineStyle: { color: "#e74c3c", type: "dashed", width: 2 },
+        z: 5,
+      });
+    } else {
+      series.push({
+        name: "SCARG Guideline",
+        type: "line",
+        data: scargSegments(key),
+        showSymbol: false,
+        lineStyle: { color: "#e74c3c", type: "dashed", width: 2 },
+        z: 5,
+      });
+    }
+  }
+
+  if (bhSeries.length) {
+    bhSeries[0].markLine = bhSeries[0].markLine || { symbol: "none", silent: true };
+    bhSeries[0].markLine.data = (bhSeries[0].markLine.data || []).concat([
+      { yAxis: 1.5, lineStyle: { color: "#111827", type: "dashed", width: 1.5 },
+        label: { formatter: "1.5 m (root zone)", position: "insideEndTop" } },
+    ]);
+  }
+
+  return {
+    backgroundColor: "#fff",
+    title: { text: c.title, left: "center", textStyle: { fontSize: 13 } },
+    // Data is [[x, y], ...] pairs, so the values live in p.value[0] / p.value[1].
+    tooltip: { trigger: "item", formatter: p => {
+      const x = Array.isArray(p.value) ? p.value[0] : p.x;
+      const y = Array.isArray(p.value) ? p.value[1] : p.y;
+      return `${p.seriesName}<br>${c.xLabel}: ${x}<br>Depth: ${y} m`;
+    } },
+    // Plain (wrapping) legend at the bottom — all boreholes visible, no scroll.
+    legend: { bottom: 0, type: "plain", itemWidth: 14, itemHeight: 8, itemGap: 6 },
+    grid: { left: 60, right: 30, top: 30, bottom: 120 },
+    xAxis: {
+      type: "value", name: c.xLabel, nameLocation: "middle", nameGap: 26,
+      min: 0, max: c.xMax, interval: c.xTick,
+      axisLabel: { show: true },
+      splitLine: { show: c.grid, lineStyle: { color: "#e5e7eb" } },
+      minorTick: { show: c.grid && c.xSub > 0, splitNumber: c.xSub },
+      minorSplitLine: { show: c.grid && c.xSub > 0, lineStyle: { color: "#f1f5f9" } },
+    },
+    yAxis: {
+      type: "value", name: "Depth (mbgs)", nameLocation: "middle", nameGap: 40,
+      min: 0, max: c.yMax, interval: c.yTick, inverse: true,
+      axisLabel: { formatter: v => `${v} m` },
+      splitLine: { show: c.grid, lineStyle: { color: "#e5e7eb" } },
+      minorTick: { show: c.grid && c.ySub > 0, splitNumber: c.ySub },
+      minorSplitLine: { show: c.grid && c.ySub > 0, lineStyle: { color: "#f1f5f9" } },
+    },
+    series,
+  };
+}
+
+function renderAll() {
+  for (const key of Object.keys(CHARTS)) {
+    const el = document.getElementById(`chart-${key}`);
+    if (!charts[key]) charts[key] = echarts.init(el);
+    charts[key].setOption(buildOption(key), { notMerge: true });
+  }
+}
+
+function resetAll() {
+  selected = new Set(BOREHOLES);
+  CHARTS.ec = { ...CHARTS.ec, xMax: 4, yMax: 12, xTick: 1, yTick: 2, xSub: 4, ySub: 4, grid: true, ref: true, refValue: null };
+  CHARTS.sar = { ...CHARTS.sar, xMax: 20, yMax: 12, xTick: 5, yTick: 2, xSub: 4, ySub: 4, grid: true, ref: true, refValue: null };
+  CHARTS.cl = { ...CHARTS.cl, xMax: 500, yMax: 12, xTick: 100, yTick: 2, xSub: 4, ySub: 4, grid: true, ref: true, refValue: CL_TIER1 };
+  buildSidebar();
+  renderAll();
+}
+
+buildSidebar();
+renderAll();
+window.addEventListener("resize", () => Object.values(charts).forEach(c => c && c.resize()));
+</script>
+</body>
+</html>

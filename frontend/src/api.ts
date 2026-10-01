@@ -25,3 +25,23 @@ export async function runWorkflow(token: string, params: Params): Promise<RunRes
   if (!r.ok) throw new Error((await r.text()) || "Run failed");
   return r.json();
 }
+
+export async function exportWorkbook(token: string, params: Params): Promise<Blob> {
+  const r = await fetch("/api/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, params }),
+  });
+  if (!r.ok) throw new Error((await r.text()) || "Export failed");
+  return r.blob();
+}
+
+export async function exportCharts(token: string, params: Params): Promise<Blob> {
+  const r = await fetch("/api/export-charts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, params }),
+  });
+  if (!r.ok) throw new Error((await r.text()) || "Charts export failed");
+  return r.blob();
+}

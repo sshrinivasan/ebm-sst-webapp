@@ -166,6 +166,23 @@ PARAMS: list[dict] = [
      "kind": "number", "control": "number", "tab": "tier1_graphs"},
     {"name": "tier1_cl_y_max", "label": "Y max",
      "kind": "number", "control": "number", "tab": "tier1_graphs"},
+    # Chloride Delineation tab: boreholes to plot (shared sample_ids option
+    # list) and units, plus per-chart axis limits. The reference line reuses
+    # the shared "Chloride guideline (mg/kg)" input (chloride_guideline) from
+    # the Configure page. The X/Y max controls render in each chart's standard
+    # Plot config bar, not the Inputs panel (see the special-cased tab render
+    # in App.tsx / ResultsViewer.tsx). Samples to plot is full-width on its own
+    # row; Chloride Units sits on the next row at half width.
+    {"name": "cl_delineation_samples", "label": "Samples to plot",
+     "kind": "list", "control": "multiselect", "tab": "cl_delineation",
+     "options": "sample_ids", "prefill": "all", "full": True},
+    {"name": "cl_delineation_units", "label": "Chloride Units",
+     "kind": "str", "control": "select", "tab": "cl_delineation",
+     "choices": ["mg/L", "mg/kg"], "default": "mg/L"},
+    {"name": "cl_delineation_x_max", "label": "X max",
+     "kind": "number", "control": "number", "tab": "cl_delineation"},
+    {"name": "cl_delineation_y_max", "label": "Y max",
+     "kind": "number", "control": "number", "tab": "cl_delineation"},
     # NPP profile axis limits.
     {"name": "npp_x_max", "label": "X max",
      "kind": "number", "control": "number", "tab": "npp"},

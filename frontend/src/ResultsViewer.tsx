@@ -250,6 +250,43 @@ export default function ResultsViewer({
             </div>
           )}
 
+          {/* ===== Chloride Delineation (Inputs panel + shared Plot config + one profile chart per 15-BH batch) ===== */}
+          {active === "cl_delineation" && (
+            <div className="stack fade-in">
+              {!result && <NeedFile />}
+              {result && (
+                <CollapsibleInputs title="Chloride Delineation inputs"
+                  inputs={schema.inputs.filter((i) => i.tab === "cl_delineation" && !i.name.endsWith("_x_max") && !i.name.endsWith("_y_max"))}
+                  params={params} options={options} setParam={setParam} />
+              )}
+              {result && (
+                <CollapsibleInputs title="Plot config"
+                  inputs={schema.inputs.filter((i) => ["cl_delineation_x_max", "cl_delineation_y_max"].includes(i.name))}
+                  params={params} options={options} setParam={setParam} />
+              )}
+              {result && (
+                <div className="chart-row">
+                  {Object.keys(result?.charts ?? {})
+                    .filter((k) => k.startsWith("cl_delineation_profile_"))
+                    .map((key) => (
+                      <ProfileChartPanel key={key} chartKey={key}
+                        title={`Chloride Profile ${key.slice("cl_delineation_profile_".length)}`}
+                        xMaxParam="cl_delineation_x_max" yMaxParam="cl_delineation_y_max"
+                        schema={schema} params={params} options={options} setParam={setParam} result={result}
+                        showConfig={false} />
+                    ))}
+                  {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith("cl_delineation_profile_")).length === 0 && (
+                    <div className="card">
+                      <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
+                        Select samples and run to render the chloride profiles.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ===== Texture (sub-tabs: depth tables + saturation profile) ===== */}
           {active === "texture" && (
             <div className="stack fade-in">
@@ -440,7 +477,7 @@ export default function ResultsViewer({
           )}
 
           {/* ===== Generic output tabs (TDS Tables, Tier 1, Site Specific, Surfer) ===== */}
-          {active !== "tds_charts" && active !== "tier1_graphs" && active !== "bg_chloride" && active !== "texture" && active !== "95_percentile" && active !== "npp" && active !== "sst_charts" && (
+          {active !== "tds_charts" && active !== "tier1_graphs" && active !== "bg_chloride" && active !== "cl_delineation" && active !== "texture" && active !== "95_percentile" && active !== "npp" && active !== "sst_charts" && (
             <div className="stack fade-in">
               {!result && <NeedFile />}
               {tabInputs.length > 0 && (

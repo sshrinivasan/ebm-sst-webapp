@@ -327,20 +327,16 @@ def sst_exceedances(ctx: Context) -> Context:
         "soluble_ions_sodium_mg_kg",
     ]
 
-    # First make the flat limiting values numeric (float) up front. Any
-    # non-numeric entry — e.g. the pH "5.3-8.5" range string — becomes NaN. Doing
-    # this before the assignment below guarantees the column is float64, so the
-    # per-row override lands in a matching dtype (avoids pandas' object->float
-    # LossySetitemError).
-    ab_all_exceedances_df["limiting_guideline"] = pd.to_numeric(
-        ab_all_exceedances_df["limiting_guideline"], errors="coerce"
-    )
-
     # For those params the governing guideline was recorded per-row in
     # "guideline_value" when the exceedance was built (it depends on the row's
     # subarea/depth), so overwrite the flat limiting value with it (also coerced
-    # to numeric) for just those rows.
+    # to numeric) for just those rows. Only these rows are coerced to numeric —
+    # everything else (e.g. the two-sided pH "5.1-8.5" range string) is left
+    # untouched so the pH guideline survives in the Limiting Guideline column.
     row_specific = ab_all_exceedances_df["exceedance_parameter"].isin(_row_specific_params)
+    ab_all_exceedances_df.loc[row_specific, "limiting_guideline"] = pd.to_numeric(
+        ab_all_exceedances_df.loc[row_specific, "limiting_guideline"], errors="coerce"
+    )
     ab_all_exceedances_df.loc[row_specific, "limiting_guideline"] = pd.to_numeric(
         ab_all_exceedances_df.loc[row_specific, "guideline_value"], errors="coerce"
     )

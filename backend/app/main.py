@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .context import Context, InputValidationError
+from .exporter import build_charts_zip, build_export_workbook
 from .loader import load
 from .manifest import build_schema
 from .params import defaults
@@ -27,6 +29,11 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 _UPLOAD_DIR = Path(tempfile.gettempdir()) / "ebm_sst_uploads"
 _UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Last run's Context per upload token, so /api/export can write the Excel
+# workbook from the exact frames the user last saw without re-running the
+# pipeline. In-memory only; /api/export falls back to a re-run if absent.
+_CONTEXT_CACHE: dict[str, Context] = {}
 
 
 def _path_for(token: str) -> Path:
@@ -94,8 +101,58 @@ def run(req: RunRequest) -> dict:
         ctx = run_pipeline(str(path), req.params)
     except InputValidationError as exc:
         raise HTTPException(400, str(exc))
+    _CONTEXT_CACHE[req.token] = ctx
     return {"outputs": ctx.outputs, "charts": ctx.charts, "options": ctx.options,
             "messages": ctx.messages, "errors": []}
+
+
+class ExportRequest(BaseModel):
+    token: str
+    params: dict = {}
+
+
+def _get_or_run_ctx(token: str, params: dict) -> Context:
+    """Return the cached Context for a token, re-running the pipeline if absent.
+
+    Uses the cached Context when available (so the export matches exactly what
+    the user last saw); otherwise re-runs the pipeline with the supplied params
+    (e.g. after a server restart).
+    """
+    ctx = _CONTEXT_CACHE.get(token)
+    if ctx is None:
+        path = _path_for(token)
+        try:
+            ctx = run_pipeline(str(path), params)
+        except InputValidationError as exc:
+            raise HTTPException(400, str(exc))
+        _CONTEXT_CACHE[token] = ctx
+    return ctx
+
+
+@app.post("/api/export")
+def export(req: ExportRequest) -> Response:
+    """Build the multi-sheet Excel workbook from the last run's frames."""
+    ctx = _get_or_run_ctx(req.token, req.params)
+    buf = build_export_workbook(ctx)
+    filename = f"EBM_SST_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/export-charts")
+def export_charts(req: ExportRequest) -> Response:
+    """Build the charts zip (Tier1_Charts/ + BG_Chloride/) from the last run."""
+    ctx = _get_or_run_ctx(req.token, req.params)
+    buf = build_charts_zip(ctx)
+    filename = f"EBM_SST_Charts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------

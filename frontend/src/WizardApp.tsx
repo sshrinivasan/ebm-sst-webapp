@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getSchema, uploadFile, runWorkflow } from "./api";
+import { getSchema, uploadFile, runWorkflow, exportWorkbook, exportCharts } from "./api";
 import type {
   Schema, RunResult, Params, InputSpec, OptionMap, TableData, Notice,
 } from "./types";
@@ -55,6 +55,8 @@ export default function WizardApp() {
   const [step, setStep] = useState(1);
   const [uploading, setUploading] = useState(false);
   const [running, setRunning] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadingCharts, setDownloadingCharts] = useState(false);
   const [drag, setDrag] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -70,6 +72,19 @@ export default function WizardApp() {
         return;
       }
     }
+    if (name === "scarg_guidelines") {
+      // A manual edit marks the table as user-overridden so the pipeline keeps
+      // using it. The Reset button restores the computed values, which clears
+      // the override so the table tracks the depth inputs again.
+      const computed = (result?.outputs?.["scarg_rating_guideline_summary"]?.rows ?? []).map((r) => ({
+        Depth: String(r.Depth ?? ""),
+        "EC Guideline": String(r["EC Guideline"] ?? ""),
+        "SAR Guideline": String(r["SAR Guideline"] ?? ""),
+      }));
+      const edited = JSON.stringify(v) !== JSON.stringify(computed);
+      setParams((p) => ({ ...p, [name]: v, scarg_guidelines_edited: edited }));
+      return;
+    }
     setParams((p) => ({ ...p, [name]: v }));
     // Option A: when the SST toggle changes, re-fetch the schema so the
     // SST tabs/outputs/charts/params appear or disappear immediately.
@@ -80,6 +95,15 @@ export default function WizardApp() {
         // may have dropped SST params, so re-seed from the fresh schema but
         // keep any values the user already set.
         const merged: Params = { ...initialParams(s), ...params, [name]: v };
+        // When the SST toggle changes, update the chloride-exceedance units
+        // default (mg/kg for SST, mg/L otherwise) if the user hasn't changed it
+        // from the previous default.
+        const oldDefault = v ? ["mg/L"] : ["mg/kg"];
+        const newDefault = v ? ["mg/kg"] : ["mg/L"];
+        const cur = merged["show_chloride_exceedances"];
+        if (Array.isArray(cur) && JSON.stringify(cur) === JSON.stringify(oldDefault)) {
+          merged["show_chloride_exceedances"] = newDefault;
+        }
         // Prefill multiselects that just appeared (e.g. NPP background samples,
         // TDS background samples) from the file-derived option lists already
         // loaded at upload. The upload-time prefill only sees the SST-off
@@ -126,9 +150,11 @@ export default function WizardApp() {
       setToken(res.token); setFilename(res.filename); setOptions(res.options);
       const prefilled: Params = { ...params };
       // Reset the editable SCARG guidelines table on a new upload so the first
-      // run recomputes them from the new file (the auto-populate in doRun only
-      // fills the table when it's empty).
+      // run recomputes them from the new file (the auto-populate in doRun
+      // refreshes the table from the computed output). Also clear the
+      // user-override flag so the table tracks the depth inputs again.
       prefilled["scarg_guidelines"] = [];
+      prefilled["scarg_guidelines_edited"] = false;
       for (const inp of schema?.inputs ?? []) {
         if (inp.control === "multiselect" && inp.prefill === "all" && inp.options) {
           const src = res.options[inp.options];
@@ -181,8 +207,10 @@ export default function WizardApp() {
       // result (Option 1). Only fill it if the user hasn't already set it, so
       // their edits survive re-runs.
       const scargOut = res.outputs?.["scarg_guidelines"];
-      const current = p.scarg_guidelines;
-      if (scargOut?.rows?.length && (!Array.isArray(current) || current.length === 0)) {
+      // Refresh the editable SCARG table from the computed output whenever the
+      // user hasn't explicitly overridden it, so it always tracks the depth
+      // inputs (topsoil_depths) unless hand-edited on the Exceedances tab.
+      if (scargOut?.rows?.length && !Boolean(p.scarg_guidelines_edited)) {
         setParams((prev) => ({
           ...prev,
           scarg_guidelines: scargOut.rows.map((r) => ({
@@ -200,6 +228,42 @@ export default function WizardApp() {
   async function runAndAdvance() {
     await doRun();
     setStep(3);
+  }
+
+  async function doExport() {
+    if (!token) return;
+    setDownloading(true);
+    try {
+      const blob = await exportWorkbook(token, cleanParams(params));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `EBM_SST_Export_${new Date().toISOString().replace(/[:.]/g, "-")}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Export failed: ${(e as Error).message}`);
+    } finally { setDownloading(false); }
+  }
+
+  async function doExportCharts() {
+    if (!token) return;
+    setDownloadingCharts(true);
+    try {
+      const blob = await exportCharts(token, cleanParams(params));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `EBM_SST_Charts_${new Date().toISOString().replace(/[:.]/g, "-")}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Charts export failed: ${(e as Error).message}`);
+    } finally { setDownloadingCharts(false); }
   }
 
   if (!schema) {
@@ -295,6 +359,8 @@ export default function WizardApp() {
           <ConfirmStep
             schema={schema} result={result} filename={filename}
             onBack={() => go(3)} onRestart={() => { setStep(1); setResult(null); setToken(null); setFilename(""); setParams(initialParams(schema)); }}
+            onDownload={doExport} downloading={downloading}
+            onDownloadCharts={doExportCharts} downloadingCharts={downloadingCharts}
           />
         )}
       </main>
@@ -494,9 +560,11 @@ function ResultsStep({ schema, result, options, params, setParam, running, onRun
 /* Step 4 — Confirm                                                    */
 /* ------------------------------------------------------------------ */
 
-function ConfirmStep({ schema, result, filename, onBack, onRestart }: {
+function ConfirmStep({ schema, result, filename, onBack, onRestart, onDownload, downloading, onDownloadCharts, downloadingCharts }: {
   schema: Schema; result: RunResult | null; filename: string;
   onBack: () => void; onRestart: () => void;
+  onDownload: () => void; downloading: boolean;
+  onDownloadCharts: () => void; downloadingCharts: boolean;
 }) {
   const tableCount = result ? Object.keys(result.outputs).length : 0;
   const chartCount = result ? Object.keys(result.charts).length : 0;
@@ -546,15 +614,26 @@ function ConfirmStep({ schema, result, filename, onBack, onRestart }: {
         </div>
 
         <div className="card wz-confirm-card">
-          <div className="card-head"><div className="card-title">Download results</div><span className="soon-tag">Coming soon</span></div>
+          <div className="card-head"><div className="card-title">Download results</div></div>
           <div className="wz-confirm-body">
             <p className="wz-confirm-note">
-              Export of the result tables and charts (Excel / PDF) is not implemented yet.
-              This page is the placeholder for that flow.
+              Download the analysis results as a multi-sheet Excel workbook
+              (EC/SAR ratings, background statistics, SCARG guidelines,
+              borehole characteristics, and exceedances), and the generated
+              charts as PNGs in a zip (Tier1_Charts/ and BG_Chloride/).
             </p>
-            <button className="btn btn-primary" disabled>
-              <IcFile className="" style={{ width: 15, height: 15 }} /> Download results
-            </button>
+            <div className="wz-confirm-actions">
+              <button className="btn btn-primary" disabled={downloading} onClick={onDownload}>
+                {downloading
+                  ? <><span className="spinner" style={{ borderTopColor: "#fff", borderColor: "rgba(255,255,255,0.4)" }} /> Exporting…</>
+                  : <><IcFile className="" style={{ width: 15, height: 15 }} /> Download results</>}
+              </button>
+              <button className="btn btn-ghost" disabled={downloadingCharts} onClick={onDownloadCharts}>
+                {downloadingCharts
+                  ? <><span className="spinner" style={{ borderTopColor: "#fff", borderColor: "rgba(255,255,255,0.4)" }} /> Exporting…</>
+                  : <><IcChart className="" style={{ width: 15, height: 15 }} /> Download charts</>}
+              </button>
+            </div>
           </div>
         </div>
       </div>

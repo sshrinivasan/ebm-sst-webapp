@@ -1,5 +1,6 @@
 from .context import Context
 from .tier1_exceedances import tier1_exceedance_output_columns, cleaned_name_to_excel_header_map
+from .loader import cleaned_to_excel
 import pandas as pd
 
 def _parse_guideline_bounds(val):
@@ -31,9 +32,39 @@ def _deviation_series(values, bounds):
     return deviation.where(values.notna())
 
 
+def _flat_tier1_guideline_lookup(ctx: Context) -> dict:
+    """cleaned param -> flat Tier 1 guideline from the 'Limiting Tier 1 Guideline' row.
+
+    Used to fill the "Tier 1 Guideline" column for SST-only rows (e.g. SST
+    chloride) that are not themselves Tier 1 exceedances, so the column is never
+    blank when the source is the Site-Specific frame.
+    """
+    row = ctx.frames.get("limiting_tier1_guideline_df")
+    if row is None or row.empty:
+        return {}
+    lookup = {}
+    for cleaned, excel in cleaned_to_excel.items():
+        if excel in row.columns:
+            val = row[excel].iloc[0]
+            if pd.notna(val):
+                lookup[cleaned] = val
+    return lookup
+
+
 def rosc_exceedances(ctx: Context) -> Context:
-    # TODO: select correct source dataframe
-    ab_all_exceedances_df = ctx.frames["tier1_exceedances_df"]
+    # Use the Site-Specific (SST) exceedances when SST is enabled; otherwise
+    # fall back to the Tier 1 exceedances. The SST frame names the "Tier 1 w BG"
+    # column "tier1_bg" (the Tier 1 frame calls it "tier1_bg_guideline"), so
+    # normalize it to the shared name before the output column map below.
+    sst_enabled = bool(ctx.params.get("sst_flag", True))
+    sst_source = False
+    if sst_enabled and "all_exceedances_df" in ctx.frames:
+        sst_source = True
+        ab_all_exceedances_df = ctx.frames["all_exceedances_df"]
+        if "tier1_bg" in ab_all_exceedances_df.columns and "tier1_bg_guideline" not in ab_all_exceedances_df.columns:
+            ab_all_exceedances_df = ab_all_exceedances_df.rename(columns={"tier1_bg": "tier1_bg_guideline"})
+    else:
+        ab_all_exceedances_df = ctx.frames["tier1_exceedances_df"]
     # Group by the user-selected ROSC grouping column and then parameter to find the maximum per group
     rosc_grouping_column_map = {
         "Subarea": "subarea",
@@ -57,13 +88,29 @@ def rosc_exceedances(ctx: Context) -> Context:
         ab_max_exceedances_df["guideline_value"],
     ).fillna(pd.to_numeric(ab_max_exceedances_df["exceedance_value"], errors="coerce"))
 
+    # .head(1) keeps the complete top-ranked row per group (all columns from the
+    # same row). .first() would pick the first non-blank value per column, which
+    # can mix values from different samples when grouped by APEC (Subarea and
+    # chloride are often blank on the top row).
     ab_max_exceedances_df = (
         ab_max_exceedances_df
         .sort_values("_guideline_deviation", ascending=False)
         .groupby(["grouping_column", "exceedance_parameter"], as_index=False, dropna=False)
-        .first()
+        .head(1)
         .drop(columns=["_guideline_deviation"])
     )
+
+    # When the source is the Site-Specific (SST) frame, its "guideline_value"
+    # holds the governing SST/SCARG guideline. The "Tier 1 Guideline" output
+    # column must show the actual Tier 1 value, which the SST frame carries in
+    # "tier1_guideline" (from the tier1 lookup); fill any gaps (SST-only rows,
+    # e.g. SST chloride) with the flat Tier 1 guideline.
+    if sst_source and "tier1_guideline" in ab_max_exceedances_df.columns:
+        _flat_t1 = _flat_tier1_guideline_lookup(ctx)
+        ab_max_exceedances_df["guideline_value"] = ab_max_exceedances_df["tier1_guideline"].fillna(
+            ab_max_exceedances_df["exceedance_parameter"].map(_flat_t1)
+        )
+
     max_exceedance_output_columns = dict(tier1_exceedance_output_columns)
     ab_max_exceedances_df_display = ab_max_exceedances_df[max_exceedance_output_columns.keys()].rename(columns=max_exceedance_output_columns)
     ab_max_exceedances_df_display["Parameter"] = ab_max_exceedances_df_display["Parameter"].map(

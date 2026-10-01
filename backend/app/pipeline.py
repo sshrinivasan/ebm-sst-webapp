@@ -27,6 +27,7 @@ from .sst_exceedances import sst_exceedances
 from .rosc import rosc_exceedances
 from .tier1_charts import tier1_charts, tier1_variable_charts
 from .bg_chloride import bg_chloride_charts
+from .cl_delineation import chloride_delineation
 from .sst_charts import seed_sst_chloride, sst_chloride_charts
 from .texture import texture_analysis, saturation_profile
 from .tds import tds_analysis, tds_tests
@@ -86,13 +87,16 @@ def run(excel_path: str, params: dict | None = None) -> Context:
     ctx = validate_topsoil_depths(ctx)
     ctx = compute_ec_sar_ratings(ctx)
     ctx = compute_scarg_guidelines(ctx)
-    # Editable SCARG guidelines: if the user provided a scarg_guidelines table
-    # (Depth / EC Guideline / SAR Guideline), override the computed defaults so
-    # every downstream consumer (tier1_exceedances, tier1_charts, tds) uses the
-    # user's values. The frontend auto-populates this table from the first run's
-    # computed scarg_guidelines output; the user can then edit and re-run.
+    # Editable SCARG guidelines: if the user EXPLICITLY edited the
+    # scarg_guidelines table on the Exceedances tab (scarg_guidelines_edited is
+    # true), override the computed defaults so every downstream consumer
+    # (tier1_exceedances, tier1_charts, tds) uses the user's values. Otherwise
+    # the table always reflects the topsoil_depths input (recomputed each run).
+    # The frontend auto-populates this table from the computed scarg_guidelines
+    # output and sets the edited flag only when the user changes it by hand.
     _user_scarg = ctx.params.get("scarg_guidelines")
-    if _user_scarg:
+    _user_scarg_edited = bool(ctx.params.get("scarg_guidelines_edited"))
+    if _user_scarg and _user_scarg_edited:
         _scarg_df = pd.DataFrame(_user_scarg)
         _scarg_df = _scarg_df.rename(columns={
             "Depth": "Depth",
@@ -110,14 +114,17 @@ def run(excel_path: str, params: dict | None = None) -> Context:
     ctx = filter_borehole_data(ctx)
     ctx = tier1_exceedances(ctx)
     ctx = depth_specific_tier1_exceedances(ctx)
-    ctx = rosc_exceedances(ctx)
     if sst_enabled:
         ctx = npp_analysis(ctx)
         ctx = npp_sulphate_tests(ctx)
         ctx = sst_exceedances(ctx)
+    # ROSC runs after the SST block so it can use the Site-Specific exceedances
+    # (all_exceedances_df) when SST is enabled, falling back to Tier 1 otherwise.
+    ctx = rosc_exceedances(ctx)
     ctx = tier1_charts(ctx)
     ctx = tier1_variable_charts(ctx)
     ctx = bg_chloride_charts(ctx)
+    ctx = chloride_delineation(ctx)
     if sst_enabled:
         ctx = texture_analysis(ctx)
         ctx = saturation_profile(ctx)

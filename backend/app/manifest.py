@@ -19,6 +19,7 @@ NAV = [
     {"id": "tds", "title": "TDS", "icon": "table"},
     {"id": "tier1_graphs", "title": "Tier 1 Graphs", "icon": "chart"},
     {"id": "bg_chloride", "title": "BG Chloride", "icon": "chart"},
+    {"id": "cl_delineation", "title": "Chloride Delineation", "icon": "chart"},
     {"id": "sst_charts", "title": "SST Charts", "icon": "chart"},
     {"id": "texture", "title": "Texture", "icon": "table"},
     {"id": "95_percentile", "title": "95th Percentile", "icon": "table"},
@@ -152,7 +153,13 @@ def build_schema(sst_flag: bool = True) -> dict:
     removed.
     """
     # example = default so the frontend prefills the control.
-    inputs = [{**p, "example": p.get("default")} for p in PARAMS]
+    inputs = []
+    for p in PARAMS:
+        inp = {**p, "example": p.get("default")}
+        # Chloride exceedance units default: mg/kg for SST sites, mg/L otherwise.
+        if p["name"] == "show_chloride_exceedances":
+            inp["example"] = ["mg/kg"] if sst_flag else ["mg/L"]
+        inputs.append(inp)
 
     if sst_flag:
         return {

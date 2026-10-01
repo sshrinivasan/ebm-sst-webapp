@@ -5,6 +5,7 @@ import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
 import { DepthSpecificTier1 } from "./components/DepthSpecificTier1";
 import { FormGrid, CollapsibleInputs } from "./components/CollapsibleInputs";
+import { ProfileChartPanel } from "./components/ProfileChartPanel";
 import {
   IcSliders, IcTable, IcChart, IcAlert, IcMap, IcUpload, IcFile,
   IcSpark, IcPlay, IcInbox, IcChevron,
@@ -72,6 +73,31 @@ export default function App() {
         return;
       }
     }
+    // When the SST toggle changes, update the chloride-exceedance units default
+    // (mg/kg for SST, mg/L otherwise) if the user hasn't changed it from the
+    // previous default.
+    if (name === "sst_flag") {
+      const oldDefault = v ? ["mg/L"] : ["mg/kg"];
+      const newDefault = v ? ["mg/kg"] : ["mg/L"];
+      const cur = params["show_chloride_exceedances"];
+      if (Array.isArray(cur) && JSON.stringify(cur) === JSON.stringify(oldDefault)) {
+        setParams((p) => ({ ...p, [name]: v, show_chloride_exceedances: newDefault }));
+        return;
+      }
+    }
+    if (name === "scarg_guidelines") {
+      // A manual edit marks the table as user-overridden so the pipeline keeps
+      // using it. The Reset button restores the computed values, which clears
+      // the override so the table tracks the depth inputs again.
+      const computed = (result?.outputs?.["scarg_rating_guideline_summary"]?.rows ?? []).map((r) => ({
+        Depth: String(r.Depth ?? ""),
+        "EC Guideline": String(r["EC Guideline"] ?? ""),
+        "SAR Guideline": String(r["SAR Guideline"] ?? ""),
+      }));
+      const edited = JSON.stringify(v) !== JSON.stringify(computed);
+      setParams((p) => ({ ...p, [name]: v, scarg_guidelines_edited: edited }));
+      return;
+    }
     setParams((p) => ({ ...p, [name]: v }));
   };
 
@@ -84,9 +110,11 @@ export default function App() {
       // their file-derived option lists are known (e.g. plot all boreholes).
       const prefilled: Params = { ...params };
       // Reset the editable SCARG guidelines table on a new upload so the first
-      // run recomputes them from the new file (the auto-populate in doRun only
-      // fills the table when it's empty).
+      // run recomputes them from the new file (the auto-populate in doRun
+      // refreshes the table from the computed output). Also clear the
+      // user-override flag so the table tracks the depth inputs again.
       prefilled["scarg_guidelines"] = [];
+      prefilled["scarg_guidelines_edited"] = false;
       for (const inp of schema?.inputs ?? []) {
         if (inp.control === "multiselect" && inp.prefill === "all" && inp.options) {
           const src = res.options[inp.options];
@@ -136,6 +164,20 @@ export default function App() {
       const res = await runWorkflow(tok, cleanParams(p));
       setResult(res);
       if (res.options) setOptions((o) => ({ ...o, ...res.options }));
+      // Refresh the editable SCARG table from the computed output whenever the
+      // user hasn't explicitly overridden it, so it always tracks the depth
+      // inputs (topsoil_depths) unless hand-edited on the Exceedances tab.
+      const scargOut = res.outputs?.["scarg_guidelines"];
+      if (scargOut?.rows?.length && !Boolean(p.scarg_guidelines_edited)) {
+        setParams((prev) => ({
+          ...prev,
+          scarg_guidelines: scargOut.rows.map((r) => ({
+            Depth: String(r.Depth ?? ""),
+            "EC Guideline": String(r["EC Guideline"] ?? ""),
+            "SAR Guideline": String(r["SAR Guideline"] ?? ""),
+          })),
+        }));
+      }
     } catch (e) {
       alert(`Run failed: ${(e as Error).message}`);
     } finally { setRunning(false); }
@@ -404,6 +446,43 @@ export default function App() {
             </div>
           )}
 
+          {/* ===== Chloride Delineation (Inputs panel + shared Plot config + one profile chart per 15-BH batch) ===== */}
+          {active === "cl_delineation" && (
+            <div className="stack fade-in">
+              {!token && <NeedFile />}
+              {token && (
+                <CollapsibleInputs title="Chloride Delineation inputs"
+                  inputs={schema.inputs.filter((i) => i.tab === "cl_delineation" && !i.name.endsWith("_x_max") && !i.name.endsWith("_y_max"))}
+                  params={params} options={options} setParam={setParam} />
+              )}
+              {token && (
+                <CollapsibleInputs title="Plot config"
+                  inputs={schema.inputs.filter((i) => ["cl_delineation_x_max", "cl_delineation_y_max"].includes(i.name))}
+                  params={params} options={options} setParam={setParam} />
+              )}
+              {token && (
+                <div className="chart-row">
+                  {Object.keys(result?.charts ?? {})
+                    .filter((k) => k.startsWith("cl_delineation_profile_"))
+                    .map((key) => (
+                      <ProfileChartPanel key={key} chartKey={key}
+                        title={`Chloride Profile ${key.slice("cl_delineation_profile_".length)}`}
+                        xMaxParam="cl_delineation_x_max" yMaxParam="cl_delineation_y_max"
+                        schema={schema} params={params} options={options} setParam={setParam} result={result}
+                        showConfig={false} />
+                    ))}
+                  {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith("cl_delineation_profile_")).length === 0 && (
+                    <div className="card">
+                      <div style={{ padding: 30, textAlign: "center", color: "var(--muted)", fontSize: 13.5 }}>
+                        Select samples and run to render the chloride profiles.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ===== Texture (sub-tabs: depth tables + saturation profile) ===== */}
           {active === "texture" && (
             <div className="stack fade-in">
@@ -528,7 +607,7 @@ export default function App() {
           )}
 
           {/* ===== Generic output tabs (TDS Tables, Tier 1, Site Specific, Surfer) ===== */}
-          {active !== "input_config" && active !== "tds_charts" && active !== "tier1_graphs" && active !== "bg_chloride" && active !== "texture" && active !== "95_percentile" && active !== "sst_charts" && (
+          {active !== "input_config" && active !== "tds_charts" && active !== "tier1_graphs" && active !== "bg_chloride" && active !== "cl_delineation" && active !== "texture" && active !== "95_percentile" && active !== "sst_charts" && (
             <div className="stack fade-in">
               {!token && <NeedFile />}
               {tabInputs.length > 0 && (
