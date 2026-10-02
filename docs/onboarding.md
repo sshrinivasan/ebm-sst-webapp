@@ -193,8 +193,8 @@ export OPENROUTER_API_KEY="sk-or-..."
 Optional per-stage model overrides (falls back to `REPORT_MODEL`):
 
 ```bash
-export REPORT_MODEL="anthropic/claude-sonnet-4-20250514"   # default
-export REPORT_MODEL_EXTRACT="anthropic/claude-sonnet-4-20250514"  # PDF stage
+export REPORT_MODEL="anthropic/claude-sonnet-5"   # default
+export REPORT_MODEL_EXTRACT="anthropic/claude-sonnet-5"  # PDF stage
 export REPORT_MODEL_AUTHOR="deepseek/deepseek-chat-v3-0324"       # authoring
 ```
 

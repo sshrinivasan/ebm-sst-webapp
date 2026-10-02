@@ -31,7 +31,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Default model: a Claude model via OpenRouter to mimic the current Claude
 # Desktop setup (see docs/ai-reporting-plan.md decision 8).
-DEFAULT_MODEL = "anthropic/claude-sonnet-4-20250514"
+DEFAULT_MODEL = "anthropic/claude-sonnet-5"
 
 
 class LLMError(RuntimeError):
