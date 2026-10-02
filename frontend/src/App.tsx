@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getSchema, uploadFile, runWorkflow } from "./api";
+import ReportWizard from "./ReportWizard";
 import type { Schema, RunResult, Params, InputSpec, OptionMap, NavNode, Notice, TableData } from "./types";
 import { Field } from "./components/Field";
 import { DataTable } from "./components/DataTable";
@@ -305,6 +306,13 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ===== AI Report (wizard: files → extract → intake → generate) ===== */}
+          {active === "report" && (
+            <div className="stack fade-in">
+              <ReportWizard />
             </div>
           )}
 

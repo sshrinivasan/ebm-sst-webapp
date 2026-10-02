@@ -23,6 +23,7 @@ NAV = [
     {"id": "sst_charts", "title": "SST Charts", "icon": "chart"},
     {"id": "texture", "title": "Texture", "icon": "table"},
     {"id": "95_percentile", "title": "95th Percentile", "icon": "table"},
+    {"id": "report", "title": "AI Report", "icon": "chart"},
 ]
 
 # tables
