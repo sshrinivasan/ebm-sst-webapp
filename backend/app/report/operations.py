@@ -96,12 +96,21 @@ def apply_operations(
     except subprocess.TimeoutExpired as exc:
         raise OperationsError(f"apply_operations timed out after {timeout}s.") from exc
 
-    if proc.returncode != 0:
+    if not output_docx.exists():
         raise OperationsError(
-            f"apply_operations failed (exit {proc.returncode}):\n"
+            f"apply_operations did not produce the output DOCX (exit {proc.returncode}):\n"
             f"{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
         )
-    if not output_docx.exists():
-        raise OperationsError("apply_operations did not produce the output DOCX.")
+
+    # apply_operations.py exits 1 when placeholders remain unfilled (e.g.
+    # Python-authored sections or the DWDA variant when DWDA-NIL applies), but
+    # it still saves the DOCX. Treat that as a warning, not a hard failure —
+    # the practitioner hand-off records the unfilled placeholders.
+    if proc.returncode != 0:
+        session.messages.append({
+            "level": "warning",
+            "workflow": "report",
+            "message": "Some report placeholders were left unfilled (see practitioner info).",
+        })
     session.final_docx = str(output_docx)
     return output_docx

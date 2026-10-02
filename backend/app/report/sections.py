@@ -96,9 +96,13 @@ def author_sections(
             model=model or model_for("author"),
             max_tokens=32_000,
         )
-        # Normalise: the guide may return the op with or without markers.
-        op.setdefault("start_text", start_marker)
-        op.setdefault("end_text", end_marker)
+        # Normalise: the guide may return the op with or without markers, and
+        # the model occasionally returns empty strings — replace those with the
+        # known markers so the section actually gets filled.
+        if not op.get("start_text"):
+            op["start_text"] = start_marker
+        if not op.get("end_text"):
+            op["end_text"] = end_marker
         op.setdefault("op", "replace_between")
         operations.append(op)
 
