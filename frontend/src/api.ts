@@ -59,6 +59,7 @@ export interface ReportSession {
   id: string;
   state: string;
   files: Record<string, ReportFileEntry[]>;
+  site_facts: Record<string, unknown>;
   extraction_flags: { message?: string; field?: string; ambiguous?: boolean }[];
   intake_answers: Record<string, unknown>;
   messages: unknown[];

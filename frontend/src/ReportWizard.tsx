@@ -171,7 +171,7 @@ export default function ReportWizard() {
       }
       const s = await reportSession(session.id);
       setSession(s);
-      setSiteFacts(s.extraction_flags ? {} : {});
+      setSiteFacts(s.site_facts ?? {});
       setFlags(s.extraction_flags ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Extraction failed");

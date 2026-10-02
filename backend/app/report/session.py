@@ -153,6 +153,7 @@ class ReportSession:
                 cat: [{"name": f["name"], "size": f["size"]} for f in files]
                 for cat, files in self.files.items()
             },
+            "site_facts": self.site_facts,
             "extraction_flags": self.extraction_flags,
             "intake_answers": self.intake_answers,
             "messages": self.messages,
