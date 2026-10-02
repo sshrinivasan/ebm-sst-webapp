@@ -107,12 +107,14 @@ class LLMClient:
         model: str | None = None,
         temperature: float = 0.0,
         max_tokens: int = 8192,
+        retries: int = 3,
     ) -> dict[str, Any]:
         """Chat completion with JSON output; parses and returns the object.
 
-        Uses ``response_format={"type": "json_object"}`` when the model
-        supports it; falls back to instructing the model to emit JSON and
-        parsing the fenced block.
+        Uses ``response_format={"type": "json_object"}`` on the first attempt
+        (falls back to plain completion if the model rejects it), and retries
+        on empty responses, API errors, and unparseable JSON — models
+        occasionally return an empty string, which is not a real answer.
         """
         import json
         import re
@@ -126,25 +128,31 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        try:
-            kwargs["response_format"] = {"type": "json_object"}
-            resp = self.client.chat.completions.create(**kwargs)
-        except Exception:
-            # Some models reject response_format; retry without it.
-            kwargs.pop("response_format", None)
+        last_error: Exception | None = None
+        for attempt in range(retries):
             try:
+                if attempt == 0:
+                    kwargs["response_format"] = {"type": "json_object"}
+                else:
+                    kwargs.pop("response_format", None)
                 resp = self.client.chat.completions.create(**kwargs)
             except Exception as exc:
-                raise LLMError(f"LLM call failed: {exc}") from exc
-        content = resp.choices[0].message.content or ""
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            # Strip markdown fences if the model wrapped the JSON.
-            match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", content, re.DOTALL)
-            if match:
-                return json.loads(match.group(1))
-            raise LLMError(f"LLM did not return valid JSON: {content[:500]}")
+                last_error = exc
+                continue
+            content = resp.choices[0].message.content or ""
+            if not content.strip():
+                last_error = LLMError("LLM returned an empty response.")
+                continue
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                # Strip markdown fences if the model wrapped the JSON.
+                match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", content, re.DOTALL)
+                if match:
+                    return json.loads(match.group(1))
+                last_error = LLMError(f"LLM did not return valid JSON: {content[:500]}")
+                continue
+        raise LLMError(f"LLM call failed after {retries} attempts: {last_error}")
 
 
 # -- document ingestion -----------------------------------------------------
