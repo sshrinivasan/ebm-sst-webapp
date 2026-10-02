@@ -3295,7 +3295,272 @@ def compute_chloride_delineation_data(wb, site_facts):
     }
 
 
-def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, client_name=None, site_facts_path=None, figures_zip_path=None):
+
+# ── Section 5 intro (Background Chloride) — pure Python ─────────────────────
+# Converted from the retired prompts/s5_intro.md: borehole lists and chloride
+# figures are lookups on the Excel workbook; the wording is fixed. Section 5
+# only exists when Background samples exceed 100 mg/L (see
+# remove_section5_if_no_bg_chloride), so only the "exceedances exist" wording
+# is written here. Excluded Background boreholes are always called out in
+# their own sentence with a reason placeholder for the practitioner.
+
+def _natural_key(sample_id):
+    import re
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(sample_id))]
+
+
+def _section5_data(wb):
+    """Read the background / excluded-background facts for Section 5's intro
+    (also written to excel_data.json for Sections 5.1-5.3)."""
+    def _rows(name):
+        if name not in wb.sheetnames:
+            return []
+        rows = list(wb[name].iter_rows(values_only=True))
+        if not rows:
+            return []
+        hdr = list(rows[0])
+        return [dict(zip(hdr, r)) for r in rows[1:]]
+
+    def _num(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    ecsar = _rows("EC & SAR Rating Categories")
+    apec_key = lambda r: r.get("APEC") if "APEC" in r else r.get("Comments")
+    bg_ids = sorted({r["Sample ID"] for r in ecsar if apec_key(r) == "Background" and r.get("Sample ID")}, key=_natural_key)
+    ex_ids = sorted({r["Sample ID"] for r in ecsar if apec_key(r) == "Excluded Background" and r.get("Sample ID")}, key=_natural_key)
+
+    seen, exc = set(), []
+    for r in _rows("Tier 1 Exceedances"):
+        if r.get("APEC") == "Background" and r.get("Chemical Group") == "Chloride":
+            k = (r.get("Sample ID"), r.get("Depth (m)"))
+            if k not in seen:
+                seen.add(k)
+                exc.append(r)
+    exc_ids = sorted({r["Sample ID"] for r in exc}, key=_natural_key)
+    top = sorted([r for r in exc if _num(r.get("Chloride (mg/kg)")) is not None],
+                 key=lambda r: r["Chloride (mg/kg)"], reverse=True)[:2]
+
+    excluded = []
+    for bid in ex_ids:
+        rows = [r for r in ecsar if r.get("Sample ID") == bid and apec_key(r) == "Excluded Background" and _num(r.get("Z")) is not None]
+        hi = [(r["Z"], r["Chloride (mg/L)"]) for r in rows if _num(r.get("Chloride (mg/L)")) is not None and r["Chloride (mg/L)"] > 100]
+        deepest = max(rows, key=lambda r: r["Z"]) if rows else None
+        excluded.append({
+            "sample_id": bid,
+            "over_100_mg_l": hi,
+            "max_depth_m": deepest["Z"] if deepest else None,
+            "max_depth_chloride_mg_l": deepest.get("Chloride (mg/L)") if deepest else None,
+        })
+    return {"background_boreholes": bg_ids, "exceedance_boreholes": exc_ids,
+            "top_values": [{"sample_id": r["Sample ID"], "depth_m": r.get("Depth (m)"), "chloride_mg_kg": r["Chloride (mg/kg)"]} for r in top],
+            "excluded_background": excluded}
+
+
+def generate_section5_intro(doc, wb):
+    """Fill <INSERT_5_INTRO_START>/<INSERT_5_INTRO_END>. Returns the data dict."""
+    from apply_operations import op_replace_between
+    d = _section5_data(wb)
+    if not d["exceedance_boreholes"]:
+        print("  ✓ generate_section5_intro: no Background chloride exceedances — Section 5 will be removed")
+        return d
+    g = lambda v: f"{int(v):,}" if float(v).is_integer() else f"{v:,g}"
+    tops = d["top_values"]
+    parts = [f"{t['chloride_mg_kg']:.0f} mg/kg at {t['sample_id']} ({float(t['depth_m']):.1f} m)" for t in tops]
+    if len(parts) >= 2:
+        clause = f"two maximum values of {parts[0]} and {parts[1]}"
+    elif parts:
+        clause = f"a maximum value of {parts[0]}"
+    else:
+        clause = "elevated values"
+    blocks = [
+        {"style": "body", "text": "As noted in Section 4.2.1, boreholes were advanced in undisturbed areas, away from former facility locations and known contaminant sources, to characterize background soil chemistry and native soil profiles."},
+        {"style": "body", "text": (f"Boreholes {_join_with_and(d['background_boreholes'])} were advanced near the lease boundaries, with no evidence of soil disturbance noted in the borehole logs. "
+                                   f"However, chloride concentrations exceeding the Tier 1 delineation guideline of 100 mg/L were identified at {_join_with_and(d['exceedance_boreholes'])}, with {clause}.")},
+        {"style": "body", "text": ("As naturally occurring chloride associated with saline lakes and seeps are well documented in the region (Last & Ginn, 2005; Kwiatkowski et al., 1996; Vance et al., 1993), "
+                                   "a review of the historical activities and site-specific soil and groundwater information was completed to evaluate the elevated chloride in the outlying background locations.")},
+    ]
+    ex = d["excluded_background"]
+    if ex:
+        ids = [e["sample_id"] for e in ex]
+        one = len(ids) == 1
+        text = (f"{_join_with_and(ids)} {'was' if one else 'were'} also advanced as {'a background location' if one else 'background locations'} but "
+                f"{'was' if one else 'were'} excluded from the background evaluation [REASON FOR EXCLUSION — PRACTITIONER TO CONFIRM].")
+        for e in ex:
+            who = e["sample_id"]
+            if e["over_100_mg_l"]:
+                hi = _join_with_and([f"{g(c)} mg/L at {g(z)} mbgs" for z, c in e["over_100_mg_l"]])
+                tail = f" Chloride at {who} exceeded the 100 mg/L delineation guideline ({hi})"
+                if e["max_depth_chloride_mg_l"] is not None and e["max_depth_chloride_mg_l"] > 100:
+                    tail += f", and vertical delineation was not achieved at the maximum investigation depth of {g(e['max_depth_m'])} mbgs."
+                else:
+                    tail += f", and chloride was below 100 mg/L at the maximum investigation depth of {g(e['max_depth_m'])} mbgs."
+            else:
+                tail = f" Chloride at {who} was below the 100 mg/L delineation guideline at all depths."
+            text += tail
+        blocks.append({"style": "body", "text": text})
+    ok = op_replace_between(doc, {"start_placeholder": "<INSERT_5_INTRO_START>", "end_placeholder": "<INSERT_5_INTRO_END>", "blocks": blocks})
+    print(f"  {'✓' if ok else '✗'} generate_section5_intro ({len(d['background_boreholes'])} background BH, {len(ex)} excluded)")
+    return d
+
+# ── Section 1 (Introduction) and 1.1 (Objectives and Scope) — pure Python ───
+# Converted from the retired prompts/s1_introduction.md and
+# prompts/s1_1_objectives_scope.md: every fact is a lookup (client, site name,
+# site type, surface location, fieldwork date) and the objective sentence is
+# one of two fixed variants chosen by the report_type run setting.
+
+OBJECTIVE_STANDARD = (
+    "The objectives of the assessment were to characterize soil quality at the "
+    "identified areas of potential environmental concern (APECs), delineate the "
+    "extent of impacts for the relevant contaminants of potential concern (CoPCs), "
+    "and evaluate the site for closure."
+)
+OBJECTIVE_PRESENCE_ABSENCE = (
+    "The objective of the assessment was to investigate each area of potential "
+    "environmental concern (APEC) for the presence or absence of the contaminants "
+    "of potential concern (CoPCs)."
+)
+
+
+def _client_info(references_folder, client_name):
+    """Return (short_name or None, is_owa) for client_name by scanning
+    prompts/clients/*.md (same Aliases lookup as the cover page). OWA is
+    detected from the client file's Short Name or the client name itself."""
+    short = None
+    needle = (client_name or "").strip().lower()
+    clients_dir = os.path.join(references_folder, "..", "prompts", "clients")
+    if needle and os.path.isdir(clients_dir):
+        def _sec(text, heading):
+            out, on = [], False
+            for line in text.splitlines():
+                t = line.strip()
+                if t.lower() == f"## {heading}".lower():
+                    on = True
+                    continue
+                if on:
+                    if t.startswith("#"):
+                        break
+                    if t:
+                        out.append(t)
+            return out
+        for fname in sorted(os.listdir(clients_dir)):
+            if not fname.endswith(".md"):
+                continue
+            with open(os.path.join(clients_dir, fname), encoding="utf-8") as f:
+                txt = f.read()
+            aliases = [a.lower() for a in _sec(txt, "Aliases")]
+            if any(needle in a or a in needle for a in aliases):
+                sn = _sec(txt, "Short Name")
+                short = sn[0] if sn else None
+                break
+    is_owa = (short == "OWA") or ("orphan well" in needle)
+    return short, is_owa
+
+
+def _titlecase_company(name):
+    """'SANLING ENERGY LTD.' -> 'Sanling Energy Ltd.'; mixed-case names are kept."""
+    if not name or name != name.upper():
+        return name
+    fix = {"LTD.": "Ltd.", "LTD": "Ltd", "INC.": "Inc.", "INC": "Inc", "CORP.": "Corp.",
+           "CORPORATION": "Corporation", "CO.": "Co.", "LIMITED": "Limited",
+           "LP": "LP", "ULC": "ULC", "LLC": "LLC"}
+    return " ".join(fix.get(w) or w.capitalize() for w in name.split())
+
+
+def _latest_fieldwork_date(log_sets):
+    """End date of the most recent drilling event, as a single 'Month D, YYYY'."""
+    import re
+    from datetime import date
+    months = {m: i for i, m in enumerate(
+        ["january", "february", "march", "april", "may", "june", "july",
+         "august", "september", "october", "november", "december"], 1)}
+    ends = []
+    for ls in (log_sets or []):
+        raw = ls.get("drill_date_header")
+        p = _parse_drill_date_header(raw)
+        if p:
+            ends.append(p[1])
+            continue
+        # Tolerant fallback: header text that isn't one clean date (e.g. extra
+        # notes such as "August 03, 2026 (pages also dated August 04 and
+        # August 05, 2026)"). Take the latest "Month D" mentioned, with the
+        # year found in the same text.
+        txt = str(raw or "")
+        yr = re.findall(r"\b(20\d{2}|19\d{2})\b", txt)
+        if not yr:
+            continue
+        for mon, day in re.findall(r"([A-Za-z]+)\s+(\d{1,2})\b", txt):
+            if mon.lower() in months:
+                try:
+                    ends.append(date(int(yr[-1]), months[mon.lower()], int(day)))
+                except ValueError:
+                    pass
+    if not ends:
+        return "XX"
+    return max(ends).strftime("%B %-d, %Y")
+
+
+def build_section1_opening_sentence(site_facts, site_lsd, client_name, references_folder):
+    """The one opening sentence shared (word for word) by Section 1 and the
+    Executive Summary's Section 1 paragraph. Written to excel_data.json as
+    `section1_opening_sentence` so the exec summary reuses it verbatim."""
+    sf = site_facts or {}
+    ab = sf.get("abadata") or {}
+    site_name = ab.get("site_name") or "XX"
+    site_type = sf.get("site_type") or "XX"
+    loc = (site_lsd or ab.get("surface_location") or "XX").strip()
+    if loc != "XX" and not loc.upper().endswith("M"):
+        loc += "M"
+    short, is_owa = _client_info(references_folder, client_name)
+    tail = (f"to complete a Phase 2 Environmental Site Assessment (ESA) at the "
+            f"{site_name} {site_type} at surface location {loc} (the site).")
+    if is_owa:
+        client = _titlecase_company(ab.get("licensee")) or "XX"
+        return f"The Orphan Well Association (OWA) retained EBM Geoscience Inc. (EBM) on behalf of {client} {tail}"
+    if not short:
+        print(f"  ⚠ Section 1: no Short Name found for client {client_name!r} in prompts/clients/ — add one; using the bare name")
+        return f"{client_name or 'XX'} retained EBM Geoscience Inc. (EBM) {tail}"
+    return f"{client_name} ({short}) retained EBM Geoscience Inc. (EBM) {tail}"
+
+
+def generate_section1(doc, site_facts, site_lsd, client_name, references_folder):
+    """Fill <INSERT_1_START>/<INSERT_1_END>. Returns the opening sentence."""
+    from apply_operations import op_replace_between
+    opening = build_section1_opening_sentence(site_facts, site_lsd, client_name, references_folder)
+    date = _latest_fieldwork_date(((site_facts or {}).get("borehole_logs") or {}).get("log_sets"))
+    ok = op_replace_between(doc, {
+        "start_placeholder": "<INSERT_1_START>",
+        "end_placeholder": "<INSERT_1_END>",
+        "blocks": [{"style": "body", "text": f"{opening} Fieldwork was completed on {date}."}],
+    })
+    print(f"  {'✓' if ok else '✗'} generate_section1 (fieldwork date: {date})")
+    return opening
+
+
+def generate_section1_1(doc, report_type="standard"):
+    """Fill <INSERT_1_1_START>/<INSERT_1_1_END>: objective sentence (by report
+    type) + the fixed scope-of-work list."""
+    from apply_operations import op_replace_between
+    rt = (report_type or "standard").strip().lower().replace("-", "_").replace("/", "_")
+    objective = OBJECTIVE_PRESENCE_ABSENCE if rt in ("presence_absence", "presence", "p2") else OBJECTIVE_STANDARD
+    blocks = [
+        {"style": "body", "text": objective},
+        {"style": "body", "text": "The scope of work included the following:"},
+        {"style": "bullet", "text": "Review the historical investigation data."},
+        {"style": "bullet", "text": "Evaluate background conditions."},
+        {"style": "bullet", "text": "Evaluate each APEC for the associated CoPCs."},
+        {"style": "bullet", "text": "Develop a conceptual site model (CSM)."},
+        {"style": "bullet", "text": "Prepare a summary report to current regulatory standards."},
+    ]
+    ok = op_replace_between(doc, {
+        "start_placeholder": "<INSERT_1_1_START>",
+        "end_placeholder": "<INSERT_1_1_END>",
+        "blocks": blocks,
+    })
+    print(f"  {'✓' if ok else '✗'} generate_section1_1 (report type: {rt})")
+    return ok
+
+
+def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, client_name=None, site_facts_path=None, figures_zip_path=None, report_type="standard"):
     """
     Generate the EBM report.
 
@@ -3562,6 +3827,8 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
             "dwda_requirement_data": dwda_requirement_payload,
             "site_summary_data": site_summary_payload,
             "chloride_delineation_data": chloride_delineation_payload,
+            "section1_opening_sentence": build_section1_opening_sentence(site_facts, site_lsd, client_name, onedrive_folder),
+            "section5_data": _section5_data(wb),
         }, _f, indent=2)
     print(f"\n✓ Wrote consolidated Excel data for Claude: {excel_data_path}")
 
@@ -3584,6 +3851,11 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     generate_cover_page(doc, onedrive_folder, site_lsd=site_lsd, client_name=client_name)
     _ab = (site_facts or {}).get("abadata", {}) if isinstance(site_facts, dict) else {}
     generate_page_headers(doc, _ab.get("licensee", ""), site_lsd or _ab.get("legal_land_description", ""))
+
+    # ── Sections 1 and 1.1 (pure Python)
+    print(f"\n✓ Filling Sections 1 and 1.1...")
+    generate_section1(doc, site_facts, site_lsd, client_name, onedrive_folder)
+    generate_section1_1(doc, report_type)
 
     # ── Fill Section 2.1 (pure Python — see the deleted prompts/s2_1_facility.md;
     # site type + every field here is a raw fact already in site_facts.json,
@@ -3727,6 +3999,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     # prompts/s5_4_conclusion.md; fixed template wording, only the borehole
     # list is site-specific)
     print(f"\n✓ Filling Section 5.4 background borehole sentence...")
+    _s5 = generate_section5_intro(doc, wb)
     generate_section5_4_background(doc, ecsar_data)
 
     # ── Save output
@@ -3746,7 +4019,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python generate_ebm_report.py <references_folder> <excel_file> [output_folder] [site_lsd] [client_name] [site_facts_json] [figures_zip_file]")
+        print("Usage: python generate_ebm_report.py <references_folder> <excel_file> [output_folder] [site_lsd] [client_name] [site_facts_json] [figures_zip_file] [report_type: standard|presence_absence]")
         print("  site_lsd and client_name are read from the ABAData Word doc (Surface")
         print("  Location, Licensee) — pass them in per run rather than relying")
         print("  on a hardcoded default; omitted values fall back to placeholder text")
@@ -3766,6 +4039,7 @@ if __name__ == "__main__":
     client_name = sys.argv[5] if len(sys.argv) > 5 else None
     site_facts_path = sys.argv[6] if len(sys.argv) > 6 else None
     figures_zip_path = sys.argv[7] if len(sys.argv) > 7 else None
+    report_type = sys.argv[8] if len(sys.argv) > 8 else "standard"
 
-    success = main(onedrive_folder, excel_file, output_folder, site_lsd=site_lsd, client_name=client_name, site_facts_path=site_facts_path, figures_zip_path=figures_zip_path)
+    success = main(onedrive_folder, excel_file, output_folder, site_lsd=site_lsd, client_name=client_name, site_facts_path=site_facts_path, figures_zip_path=figures_zip_path, report_type=report_type)
     sys.exit(0 if success else 1)

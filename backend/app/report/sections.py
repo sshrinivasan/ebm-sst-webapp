@@ -24,15 +24,14 @@ _PROMPTS = _SKILL_ROOT / "prompts"
 
 # (section, prompt file, start marker, end marker) — from SKILL.md Step 3.
 SECTION_PROMPTS: list[tuple[str, str, str, str]] = [
-    ("1 Introduction", "s1_introduction.md", "<INSERT_1_START>", "<INSERT_1_END>"),
-    ("1.1 Objectives and Scope", "s1_1_objectives_scope.md", "<INSERT_1_1_START>", "<INSERT_1_1_END>"),
+    # Sections 1, 1.1, and 5 intro are Python-authored by the generator
+    # (generate_section1 / generate_section1_1 / generate_section5_intro).
     ("1.2.1 Previous Assessments", "s1_2_1_previous_assessments.md", "<INSERT_121_START>", "<INSERT_121_END>"),
     ("Executive Summary", "exec_summary.md", "<INSERT_EXEC_SUMMARY_START>", "<INSERT_EXEC_SUMMARY_END>"),
     ("4.2 DWDA", "s4_2_dwda.md", "<INSERT_42_DWDA_START>", "<INSERT_42_DWDA_END>"),
     ("4.2 DWDA-NIL", "s4_2_dwda_nil.md", "<INSERT_42_DWDA_NIL_START>", "<INSERT_42_DWDA_NIL_END>"),
     ("4.2.2 APECs", "s4_2_2_apecs.md", "<INSERT_42_APECS_START>", "<INSERT_42_APECS_END>"),
     ("4.3 Chloride Delineation", "s4_3_chloride.md", "<INSERT_43_START>", "<INSERT_43_END>"),
-    ("5 Background Chloride Intro", "s5_intro.md", "<INSERT_5_INTRO_START>", "<INSERT_5_INTRO_END>"),
     ("5.1 Phase 1 ESA Review", "s5_1_phase1.md", "<INSERT_5_1_START>", "<INSERT_5_1_END>"),
     ("5.2 Contaminant Transport", "s5_2_transport.md", "<INSERT_5_2_START>", "<INSERT_5_2_END>"),
     ("5.3 Chemistry Footprint", "s5_3_footprint.md", "<INSERT_5_3_START>", "<INSERT_5_3_END>"),
