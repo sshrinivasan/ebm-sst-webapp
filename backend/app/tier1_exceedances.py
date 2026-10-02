@@ -323,6 +323,13 @@ def tier1_exceedances(ctx: Context) -> Context:
     # EC and SAR Tier 1 guidelines are defined by SCARG and are depth-dependent, so the
     # limiting guideline for those rows is the SCARG value that governed the exceedance
     # rather than the flat value scraped from the Excel limiting-guideline row.
+    # Widen to object first: the .map() above can leave the column int64 (or hold
+    # string depth-ranges like "5.3-8.5"), and pandas 2.x raises LossySetitemError
+    # when assigning float SCARG values into an int64 column. Object dtype holds
+    # both the strings and the float SCARG values without lossy conversion.
+    ab_all_tier1_exceedances_df["limiting_guideline"] = ab_all_tier1_exceedances_df[
+        "limiting_guideline"
+    ].astype(object)
     _scarg_params = ["general_inorganics_ec_ds_m", "general_inorganics_sar"]
     _scarg_mask = ab_all_tier1_exceedances_df["exceedance_parameter"].isin(_scarg_params)
     ab_all_tier1_exceedances_df.loc[_scarg_mask, "limiting_guideline"] = ab_all_tier1_exceedances_df.loc[
