@@ -157,7 +157,73 @@ The frontend reads `build_schema()` and renders everything automatically.
 
 ---
 
-## 6. Useful commands
+## 6. AI Report generation (LLM)
+
+The **AI Report** tab runs the vendored `ebm-routine-report` skill as a webapp
+wizard: upload files → LLM site-facts extraction → intake questions → hands-off
+report generation (DOCX). See [`ai-reporting-plan.md`](ai-reporting-plan.md)
+for the full design.
+
+### OpenRouter API key (required for the LLM steps)
+
+The webapp calls **OpenRouter** (a single OpenAI-compatible endpoint) for the
+extraction and authoring steps. It reads the key from the **backend process
+environment** — it is **not** the same key Roo Code uses, and it is **not**
+stored in the frontend or any config file.
+
+```bash
+# from backend/ (or your shell profile)
+export OPENROUTER_API_KEY="sk-or-..."
+uvicorn app.main:app --reload
+```
+
+Optional per-stage model overrides (falls back to `REPORT_MODEL`):
+
+```bash
+export REPORT_MODEL="anthropic/claude-sonnet-4-20250514"   # default
+export REPORT_MODEL_EXTRACT="anthropic/claude-sonnet-4-20250514"  # PDF stage
+export REPORT_MODEL_AUTHOR="deepseek/deepseek-chat-v3-0324"       # authoring
+```
+
+If the key is missing, the extraction/authoring endpoints return a clear error
+("OPENROUTER_API_KEY is not set") — the rest of the app is unaffected.
+
+### Report module layout (`backend/app/report/`)
+
+| Module | Responsibility |
+|---|---|
+| `session.py` | Per-session file storage + non-linear state machine (`files ⇄ extracting ⇄ facts_review → preparing → intake → generating → done`) |
+| `llm.py` | OpenRouter client (`complete_json`, document ingestion) + per-stage model config |
+| `extract.py` | Step 1c: one LLM call → `site_facts.json` + `extraction_flags[]` |
+| `generator.py` | `generate_ebm_report.py` subprocess wrapper → partial DOCX + `excel_data.json` |
+| `intake.py` | Intake question definitions + applicability logic (Q21/Q22 always; Q22c/Q14/Q6/Q18 conditional) |
+| `sections.py` | Step 3: per-section LLM authoring → operations array |
+| `operations.py` | Operation validation + `apply_operations.py` wrapper |
+| `practitioner.py` | Step 6: practitioner hand-off DOCX |
+| `jobs.py` | Non-blocking background job runner (thread pool + status store) |
+| `pipeline.py` | Hands-off orchestrator: regenerate → author → apply → practitioner |
+| `router.py` | `/api/report/*` endpoints (start/extract/confirm/prepare/intake/generate/status/download) |
+
+### Wizard flow (frontend `ReportWizard.tsx`)
+
+1. **Files** — upload the Excel analytical file (required) + source PDFs
+   (ABAData, Phaseview, Phase 1 ESA, borehole logs). Figures zip optional for now.
+2. **Extract & Review** — background LLM extraction; review/edit `site_facts.json`
+   and resolve `extraction_flags`.
+3. **Intake** — background generator run computes which questions apply; answer
+   the dynamic form.
+4. **Generate** — one action runs the hands-off pipeline (staged progress).
+5. **Done** — download the final DOCX + practitioner hand-off.
+
+### Tests
+
+`backend/tests/test_report_*.py` cover the session store, intake applicability,
+operation validation, extraction (mocked LLM), and the pipeline (mocked
+subprocess steps). Run with `pytest` from `backend/`.
+
+---
+
+## 7. Useful commands
 
 ```bash
 # from backend/
@@ -168,9 +234,11 @@ pytest                                # run the regression tests
 
 ---
 
-## 7. Related design doc
+## 8. Related design docs
 
-[`parallel-workflows-plan.md`](parallel-workflows-plan.md) — the future-proofing
-plan for running multiple workflows concurrently (trunk + branches, read-only
-base frames, per-workflow result namespaces, cache-prep-by-token). Not yet
-implemented; the current `run()` is a flat sequential list.
+- [`parallel-workflows-plan.md`](parallel-workflows-plan.md) — the future-proofing
+  plan for running multiple workflows concurrently (trunk + branches, read-only
+  base frames, per-workflow result namespaces, cache-prep-by-token). Not yet
+  implemented; the current `run()` is a flat sequential list.
+- [`ai-reporting-plan.md`](ai-reporting-plan.md) — the AI report generation
+  design (vendored skill assets, LLM provider, wizard flow, implementation phases).
