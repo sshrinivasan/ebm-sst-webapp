@@ -302,7 +302,7 @@ export default function ReportWizard() {
               <div>Drop files here or click to browse</div>
               <div style={{ fontSize: 12, marginTop: 6 }}>
                 Excel analytical file (required), plus ABAData, Phaseview, Phase 1 ESA, borehole
-                logs… (figures zip optional for now)
+                logs, and the figures zip (BG_CHLORIDE/ + CL_DELINEATION/ PNGs)
               </div>
               <input
                 ref={fileInput} type="file" multiple style={{ display: "none" }}
