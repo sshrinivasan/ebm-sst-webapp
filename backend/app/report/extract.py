@@ -69,7 +69,7 @@ def extract_site_facts(
         system,
         user,
         model=model or model_for("extract"),
-        max_tokens=16_000,
+        max_tokens=32_000,
     )
 
     # Split the flags out of the facts object.

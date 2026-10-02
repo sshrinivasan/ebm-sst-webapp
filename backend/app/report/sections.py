@@ -94,7 +94,7 @@ def author_sections(
             system,
             user,
             model=model or model_for("author"),
-            max_tokens=16_000,
+            max_tokens=32_000,
         )
         # Normalise: the guide may return the op with or without markers.
         op.setdefault("start_text", start_marker)
