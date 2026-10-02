@@ -31,7 +31,7 @@ the live analytical file, since that data changes every run.
 | Impact area chloride range and depth | `EC & SAR Rating Categories` sheet — non-Background APEC rows, **`Chloride (mg/kg)` column** |
 | Background chloride exceedances | `Tier 1 Exceedances` sheet — filter `APEC` = "Background" AND `Chemical Group` = "Chloride". **Use the `Chloride (mg/kg)` column, not the `Value` column** — for Chloride rows, `Value` is actually the mg/L reading (it mirrors the `Chloride (mg/L)` column), not mg/kg. Using `Value` directly will silently report mg/L numbers as if they were mg/kg. |
 | Background borehole directions | Compute from survey coordinates — see Step 3 below. Do **not** ask the user; `site_facts.json`'s `borehole_logs.boreholes[].easting`/`.northing` carry the real coordinates for this. |
-| Closing interpretation | Intake quiz Q18, informed by the computed depth facts above |
+| Closing interpretation | Author it yourself from the computed depth facts above. Do **not** ask the user (intake Q18 was removed). |
 
 ---
 
@@ -40,7 +40,7 @@ the live analytical file, since that data changes every run.
 | # | Question | Answer drives |
 |---|---|---|
 | ~~Q17~~ | ~~Removed — directions are computed from borehole log survey coordinates, not asked~~ | Bullet 3 direction clause |
-| Q18 | Provide the closing transport interpretation for Section 5.2 (2–3 sentences on expected transport pathway and why background chloride cannot be explained by on-site transport). Ground it in the actual depth-to-water-table facts gathered in Steps 1–3, don't write this generically. | Closing paragraphs |
+| ~~Q18~~ | ~~Removed — the closing paragraph is authored automatically, not asked~~ | Closing paragraphs |
 
 ---
 
@@ -153,9 +153,13 @@ computed coordinates.
 
 ## Step 4 — Closing paragraphs
 
-Use intake quiz Q18, but make sure it's grounded in the actual figures
-computed in Steps 1–3 (max investigation depth, depth of impact vs.
-estimated water table) rather than generic boilerplate language.
+Author the closing paragraph(s) yourself — do not ask the user. Write 2–3
+sentences on the expected transport pathway and why background chloride cannot
+be explained by on-site transport, grounded in the actual figures computed in
+Steps 1–3 (max investigation depth, depth of impact vs. estimated water table)
+rather than generic boilerplate language. Only state conclusions the computed
+facts support; if they do not clearly support "cannot be explained by on-site
+transport", write the narrower statement they do support.
 
 ---
 
@@ -171,7 +175,7 @@ estimated water table) rather than generic boilerplate language.
     {"style": "bullet", "text": "[Bullet 1 — no mottling/gleying]"},
     {"style": "bullet", "text": "[Bullet 2 — impact area chloride]"},
     {"style": "bullet", "text": "[Bullet 3 — background chloride + directions]"},
-    {"style": "body", "text": "[Closing paragraph(s) from Q18]"}
+    {"style": "body", "text": "[Closing paragraph(s), authored per Step 4]"}
   ]
 }
 ```

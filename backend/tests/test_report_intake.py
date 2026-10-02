@@ -62,12 +62,6 @@ def test_q6_absent_without_exceedances():
     assert "q6" not in ids
 
 
-def test_q18_when_chloride_data_exists():
-    s = _session(excel_data={"ec_sar_data": [{"sample_id": "BH25-01"}]})
-    ids = {q["id"] for q in applicable_questions(s)}
-    assert "q18" in ids
-
-
 def test_auto_derived_summary():
     s = _session(
         site_facts={"site_lsd": "08-13-016-01 W4", "site_type": "wellsite"},

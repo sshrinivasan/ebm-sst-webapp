@@ -172,7 +172,6 @@ describing what was found instead of guessing.
 | `total_gas_production` | "Total gas production" row (include units) | |
 | `total_water_production` | "Total water production" row (include units) | |
 | `total_oil_production` | "Total crude oil/bitumen production" row (include units) | |
-| `area_office` | "Area office" row | new field |
 | `landscape` | The row/line labeled "Landscape," found anywhere in the doc — see "Landscape — search by label, not by table position" above | new field |
 | `spill_records` | Table 4 (spill-records table) + surrounding narrative paragraphs | see "Spill records" below |
 | `associated_spills_text` | Derived from `spill_records` | see "Spill records" below |
@@ -589,7 +588,6 @@ Do **not** write or update this file when the cache was reused unchanged.
     "total_gas_production": "4,169,300 m³",
     "total_water_production": "No production total found; not confirmation of zero production.",
     "total_oil_production": "No production total found; not confirmation of zero production.",
-    "area_office": "Medicine Hat",
     "landscape": "Low relief – hummocky",
     "spill_records": [
       {

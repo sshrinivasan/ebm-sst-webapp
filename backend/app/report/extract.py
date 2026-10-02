@@ -25,10 +25,70 @@ SITE_FACTS_PROMPT = _SKILL_ROOT / "prompts" / "site_facts_cache.md"
 _FLAG_KEY = "extraction_flags"
 
 
-def _system_prompt() -> str:
+def _parse_sections(text: str) -> list[tuple[str, str, str]]:
+    """Split the field-list markdown into (level, title, body) blocks.
+
+    ``level`` is "##" or "###"; the body excludes the header line.
+    """
+    blocks: list[tuple[str, str, str]] = []
+    level = ""
+    title = ""
+    body: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## ") or line.startswith("### "):
+            if title:
+                blocks.append((level, title, "\n".join(body)))
+            level = "##" if line.startswith("## ") else "###"
+            title = line[3:].strip() if line.startswith("## ") else line[4:].strip()
+            body = []
+        else:
+            body.append(line)
+    if title:
+        blocks.append((level, title, "\n".join(body)))
+    return blocks
+
+
+def _section_category(title: str) -> str | None:
+    """Map a field-list subsection title to a file category (None = shared)."""
+    t = title.lower()
+    if "abadata" in t:
+        return "abadata"
+    if "phaseview" in t:
+        return "phaseview"
+    if "phase 1 esa" in t:
+        return "phase1_esa"
+    if "borehole log" in t:
+        return "borehole_logs"
+    if "other previous-assessment" in t:
+        return "other_assessment"
+    return None
+
+
+def _build_system_prompt(categories: set[str]) -> str:
+    """Build the extraction system prompt from the field-list file.
+
+    Always includes the shared ``##`` sections (purpose, rules, schema, etc.)
+    and only the ``###`` field-list subsections for the uploaded categories —
+    so the model is not asked to extract fields for documents that don't exist.
+    """
+    text = SITE_FACTS_PROMPT.read_text(encoding="utf-8")
+    parts: list[str] = []
+    for level, title, body in _parse_sections(text):
+        if level == "##":
+            parts.append(f"## {title}\n{body}".rstrip())
+        else:
+            cat = _section_category(title)
+            if cat is None or cat in categories:
+                parts.append(f"### {title}\n{body}".rstrip())
+    return "\n\n".join(parts)
+
+
+def _system_prompt(categories: set[str] | None = None) -> str:
     if not SITE_FACTS_PROMPT.exists():
         raise FileNotFoundError(f"Missing extraction prompt: {SITE_FACTS_PROMPT}")
-    return SITE_FACTS_PROMPT.read_text(encoding="utf-8")
+    if categories is None:
+        return SITE_FACTS_PROMPT.read_text(encoding="utf-8")
+    return _build_system_prompt(categories)
 
 
 def _user_prompt(payload: str) -> str:
@@ -62,7 +122,10 @@ def extract_site_facts(
 
     blocks = ingest_documents(sources)
     payload = assemble_document_payload(blocks)
-    system = _system_prompt()
+    # Only include the field-list sections for the uploaded filetypes, so the
+    # model isn't asked to extract fields for documents that don't exist.
+    categories = {cat for cat in session.files if session.has_category(cat)}
+    system = _system_prompt(categories)
     user = _user_prompt(payload)
 
     result = llm.complete_json(

@@ -2,8 +2,7 @@
 
 Always-ask: Q21 (report type), Q22(a) (DWDA exploratory boreholes).
 Conditional: Q22(c) (EM survey, only when no sump found), Q14 (chloride
-threshold, only when background chloride is in play), Q6 (impact volume),
-Q18 (closing transport interpretation).
+threshold, only when background chloride is in play), Q6 (impact volume).
 Auto-derived (shown in review, not asked): Q0 (identity reconciliation),
 Q1 (site type), Q22(b) (sump found — from excel_data.json's dwda_data).
 """
@@ -75,17 +74,6 @@ QUESTION_DEFS: dict[str, dict[str, Any]] = {
         "type": "text",
         "always": False,
     },
-    "q18": {
-        "id": "q18",
-        "title": "Closing transport interpretation",
-        "prompt": (
-            "Provide the closing transport interpretation for Section 5.2 "
-            "(2–3 sentences on the expected transport pathway and why "
-            "background chloride cannot be explained by on-site transport)."
-        ),
-        "type": "textarea",
-        "always": False,
-    },
 }
 
 # Auto-derived questions surfaced in the review step (not asked).
@@ -135,16 +123,6 @@ def _has_impacts(session: ReportSession) -> bool:
     return False
 
 
-def _has_chloride_data(session: ReportSession) -> bool:
-    """Q18: closing transport interpretation applies when chloride data exists."""
-    data = session.excel_data
-    return bool(
-        data.get("chloride_delineation_data")
-        or data.get("cl_delineation")
-        or data.get("ec_sar_data")
-    )
-
-
 def applicable_questions(session: ReportSession) -> list[dict[str, Any]]:
     """Return the intake questions that apply for this session's data."""
     result: list[dict[str, Any]] = []
@@ -157,8 +135,6 @@ def applicable_questions(session: ReportSession) -> list[dict[str, Any]]:
         elif qid == "q14" and _background_chloride_in_play(session):
             result.append(q)
         elif qid == "q6" and _has_impacts(session):
-            result.append(q)
-        elif qid == "q18" and _has_chloride_data(session):
             result.append(q)
     return result
 

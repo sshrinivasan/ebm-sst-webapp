@@ -76,14 +76,6 @@ def build_practitioner_info(session: ReportSession) -> dict[str, Any]:
         else:
             not_found.append(f"Extraction: {message}" + (f" (field: {field})" if field else ""))
 
-    # Intake Q18 (Claude-authored judgment) -> check.
-    q18 = session.intake_answers.get("q18")
-    if q18:
-        check.append(
-            "Section 5.2 closing transport interpretation was drafted from "
-            f"intake Q18: \"{q18}\" — confirm the interpretation."
-        )
-
     # Defaulted/blank intake answers -> uncertain.
     for qid, value in session.intake_answers.items():
         if value is None or (isinstance(value, str) and not value.strip()):

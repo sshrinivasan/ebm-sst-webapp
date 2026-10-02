@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.report.extract import extract_site_facts
+from app.report.extract import _build_system_prompt, extract_site_facts
 from app.report.llm import LLMError
 from app.report.session import ReportSession
 
@@ -93,3 +93,25 @@ def test_ingest_documents_skips_missing(tmp_path: Path):
 
     blocks = ingest_documents([tmp_path / "missing.pdf"])
     assert blocks == []
+
+
+def test_system_prompt_filters_by_category():
+    """The field list only includes sections for the uploaded filetypes."""
+    full = _build_system_prompt({"abadata", "phaseview", "phase1_esa", "borehole_logs"})
+    # All field-list section headers present when all categories uploaded.
+    assert "### ABAData Word doc" in full
+    assert "### Phaseview PDF" in full
+    assert "### AER Phase 1 ESA" in full
+    assert "### Borehole log PDFs" in full
+    # Shared sections always present.
+    assert "## Schema" in full
+    assert "## Purpose" in full
+
+    esa_only = _build_system_prompt({"phase1_esa"})
+    assert "### AER Phase 1 ESA" in esa_only
+    assert "### ABAData Word doc" not in esa_only
+    assert "### Phaseview PDF" not in esa_only
+    assert "### Borehole log PDFs" not in esa_only
+    # Schema still kept.
+    assert "## Schema" in esa_only
+    assert len(esa_only) < len(full)
