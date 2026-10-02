@@ -23,9 +23,11 @@ from .percentile_95 import _build_borehole_sa_df
 from .npp import seed_npp_options
 from .tds import seed_tds_options
 from .sst_charts import build_plot_config_default, build_subarea_borehole_map
+from .report.router import router as report_router
 
 app = FastAPI(title="EBM SST")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(report_router)
 
 _UPLOAD_DIR = Path(tempfile.gettempdir()) / "ebm_sst_uploads"
 _UPLOAD_DIR.mkdir(exist_ok=True)
