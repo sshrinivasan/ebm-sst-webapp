@@ -90,21 +90,28 @@ def author_sections(
             progress(f"Authoring {section}…")
         system = _prompt_text(prompt_file)
         user = _user_prompt(section, context)
-        op = llm.complete_json(
+        result = llm.complete_json(
             system,
             user,
             model=model or model_for("author"),
             max_tokens=32_000,
         )
-        # Normalise: the guide may return the op with or without markers, and
-        # the model occasionally returns empty strings — replace those with the
-        # known markers so the section actually gets filled.
-        if not op.get("start_text"):
-            op["start_text"] = start_marker
-        if not op.get("end_text"):
-            op["end_text"] = end_marker
-        op.setdefault("op", "replace_between")
-        operations.append(op)
+        # Some guides return a single operation object, others an array (e.g.
+        # s1_2_1 returns replace_table_rows + replace_between). Normalise both.
+        items = result if isinstance(result, list) else [result]
+        for op in items:
+            if not isinstance(op, dict):
+                continue
+            op.setdefault("op", "replace_between")
+            # Only replace_between needs the section markers; the model
+            # occasionally returns empty strings, so fill them with the known
+            # markers to ensure the section actually gets filled.
+            if op["op"] == "replace_between":
+                if not op.get("start_text"):
+                    op["start_text"] = start_marker
+                if not op.get("end_text"):
+                    op["end_text"] = end_marker
+            operations.append(op)
 
     session.operations = operations
     session.save_operations()

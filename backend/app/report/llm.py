@@ -146,8 +146,9 @@ class LLMClient:
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
-                # Strip markdown fences if the model wrapped the JSON.
-                match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", content, re.DOTALL)
+                # Strip markdown fences if the model wrapped the JSON (object
+                # or array).
+                match = re.search(r"```(?:json)?\s*([\[{].*?[\]}])\s*```", content, re.DOTALL)
                 if match:
                     return json.loads(match.group(1))
                 last_error = LLMError(f"LLM did not return valid JSON: {content[:500]}")
