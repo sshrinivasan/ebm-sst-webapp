@@ -6,3 +6,6 @@ numpy
 openpyxl
 matplotlib
 scipy
+openai
+pypdf
+python-docx

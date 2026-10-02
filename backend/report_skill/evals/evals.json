@@ -1,0 +1,27 @@
+{
+  "skill_name": "generate-ebm-environmental-report",
+  "description": "Test the EBM report generation skill with real project data",
+  "evals": [
+    {
+      "id": 1,
+      "name": "Basic report generation with provided data",
+      "prompt": "Generate an EBM Routine P2 Environmental Site Assessment report. The OneDrive folder is at '/Users/sid/Library/CloudStorage/OneDrive-YourOrg/EBM_Reports' and the analytical Excel file is 'output_20260213_170242.xlsx' in that folder.",
+      "expected_output": "A populated DOCX report file (EBM_Report_YYYYMMDD_HHMMSS.docx) with: (1) Spill incidents as bullets in the Associated Spills cell, (2) Wellsite table populated with site info, (3) Per-area reporting sections with EC/SAR/Chloride analysis and exceedances",
+      "files": [],
+      "assertions": [
+        "The output DOCX file is created and can be opened without errors",
+        "All INSERT_2_1_HERE and INSERT_4_2_HERE placeholders are replaced (not visible in final document)",
+        "Spill incidents appear as Word bullets with format: 'Incident # [ID]. [Date]. Substance spilled: [details]'",
+        "Wellsite table shows updated values: Site Name, Legal Land Description, Licensee, Spud Date, Wellbore Depth, Abandonment Date, License No.",
+        "Per-area reporting includes all unique areas from Excel data as Heading 3 sections",
+        "Each area section contains an intro paragraph with borehole/sample counts",
+        "Each area has 'Summary of Results' with bolded bullet points for EC, SAR, and Chloride",
+        "Background area chloride text includes 'Section 5' reference",
+        "Exceedance bullets appear when non-salinity parameters exceed guidelines",
+        "Category names (Good, Fair, Poor, etc.) are bolded in bullets",
+        "Chloride values are formatted correctly: integers without decimals, floats with 1 decimal place",
+        "XML is well-formed (no parsing errors)"
+      ]
+    }
+  ]
+}
