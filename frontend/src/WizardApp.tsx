@@ -5,8 +5,9 @@ import type {
 } from "./types";
 import { Field } from "./components/Field";
 import ResultsViewer from "./ResultsViewer";
+import ReportWizard from "./ReportWizard";
 import {
-  IcUpload, IcSliders, IcChart, IcCheck, IcFile, IcPlay, IcInbox, IcDownload,
+  IcUpload, IcSliders, IcChart, IcCheck, IcFile, IcPlay, IcInbox, IcDownload, IcSpark,
 } from "./components/icons";
 
 /* ------------------------------------------------------------------ */
@@ -18,6 +19,7 @@ const STEPS = [
   { id: 2, title: "Configure", desc: "Set analysis parameters", icon: IcSliders },
   { id: 3, title: "Workflows", desc: "Review every workflow", icon: IcChart },
   { id: 4, title: "Confirm", desc: "Download outputs", icon: IcCheck },
+  { id: 5, title: "AI Report", desc: "Generate the EBM report", icon: IcSpark },
 ];
 
 function initialParams(schema: Schema): Params {
@@ -282,6 +284,7 @@ export default function WizardApp() {
     if (s === 2) return Boolean(token);
     if (s === 3) return Boolean(token);
     if (s === 4) return Boolean(result);
+    if (s === 5) return true;  // AI Report is independent of the analysis run
     return false;
   };
 
@@ -331,7 +334,7 @@ export default function WizardApp() {
       </nav>
 
       {/* ---------- Body ---------- */}
-      <main className={`wz-body ${step === 3 ? "wide" : ""}`}>
+      <main className={`wz-body ${step === 3 || step === 5 ? "wide" : ""}`}>
         {step === 1 && (
           <UploadStep
             token={token} filename={filename} uploading={uploading} drag={drag}
@@ -362,6 +365,12 @@ export default function WizardApp() {
             onDownload={doExport} downloading={downloading}
             onDownloadCharts={doExportCharts} downloadingCharts={downloadingCharts}
           />
+        )}
+
+        {step === 5 && (
+          <div className="wz-panel fade-in">
+            <ReportWizard />
+          </div>
         )}
       </main>
 
