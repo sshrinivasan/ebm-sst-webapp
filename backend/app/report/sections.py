@@ -26,6 +26,7 @@ _PROMPTS = _SKILL_ROOT / "prompts"
 SECTION_PROMPTS: list[tuple[str, str, str, str]] = [
     ("1 Introduction", "s1_introduction.md", "<INSERT_1_START>", "<INSERT_1_END>"),
     ("1.1 Objectives and Scope", "s1_1_objectives_scope.md", "<INSERT_1_1_START>", "<INSERT_1_1_END>"),
+    ("1.2.1 Previous Assessments", "s1_2_1_previous_assessments.md", "<INSERT_121_START>", "<INSERT_121_END>"),
     ("Executive Summary", "exec_summary.md", "<INSERT_EXEC_SUMMARY_START>", "<INSERT_EXEC_SUMMARY_END>"),
     ("4.2 DWDA", "s4_2_dwda.md", "<INSERT_42_DWDA_START>", "<INSERT_42_DWDA_END>"),
     ("4.2 DWDA-NIL", "s4_2_dwda_nil.md", "<INSERT_42_DWDA_NIL_START>", "<INSERT_42_DWDA_NIL_END>"),
