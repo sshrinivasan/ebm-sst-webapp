@@ -225,6 +225,9 @@ export default function ReportWizard() {
     try {
       const s = await reportSubmitIntake(session.id, answers);
       setSession(s);
+      // Clear stale job state from the prepare step before entering Generate.
+      setJobId(null);
+      setJob(null);
       setStep(4);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Intake submit failed");
@@ -238,6 +241,10 @@ export default function ReportWizard() {
     if (!session) return;
     setError(null);
     setBusy(true);
+    // Clear any stale job state from the prepare step so the Generate
+    // button/stages render correctly.
+    setJobId(null);
+    setJob(null);
     try {
       const { job_id } = await reportGenerate(session.id);
       setJobId(job_id);
