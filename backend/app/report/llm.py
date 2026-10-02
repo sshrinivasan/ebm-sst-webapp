@@ -1,6 +1,6 @@
 """Provider-agnostic LLM client — OpenRouter via the openai SDK.
 
-Config (env vars):
+Config (env vars, or a ``backend/.env`` file — see ``.env.example``):
 - ``OPENROUTER_API_KEY`` — required for real calls
 - ``REPORT_MODEL`` — default model (e.g. ``anthropic/claude-sonnet-4-*``)
 - ``REPORT_MODEL_EXTRACT`` — model for the site-facts extraction stage
@@ -19,7 +19,13 @@ import os
 from pathlib import Path
 from typing import Any, Iterable
 
+from dotenv import load_dotenv
 from openai import OpenAI
+
+# Load backend/.env if present (gitignored) so the key is set once, not per
+# terminal. Real env vars always win over the .env file.
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(_BACKEND_ROOT / ".env")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 

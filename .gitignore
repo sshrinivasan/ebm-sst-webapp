@@ -1,6 +1,11 @@
 # macOS
 .DS_Store
 
+# Local secrets (OpenRouter API key, etc.) — never commit
+.env
+.env.*
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]

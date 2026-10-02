@@ -169,12 +169,25 @@ for the full design.
 The webapp calls **OpenRouter** (a single OpenAI-compatible endpoint) for the
 extraction and authoring steps. It reads the key from the **backend process
 environment** — it is **not** the same key Roo Code uses, and it is **not**
-stored in the frontend or any config file.
+stored in the frontend or committed to git.
+
+**Easiest setup — a gitignored `.env` file (set once, not per terminal):**
 
 ```bash
-# from backend/ (or your shell profile)
+# one-time: copy the template and fill in your key
+cp backend/.env.example backend/.env
+# edit backend/.env and set OPENROUTER_API_KEY=sk-or-...
+```
+
+The backend loads `backend/.env` automatically on startup (python-dotenv), so
+you never type the key again. Real environment variables always win over the
+`.env` file.
+
+**Alternative — shell profile (also one-time):**
+
+```bash
+# add to ~/.zshrc, then open a new terminal
 export OPENROUTER_API_KEY="sk-or-..."
-uvicorn app.main:app --reload
 ```
 
 Optional per-stage model overrides (falls back to `REPORT_MODEL`):
