@@ -18,7 +18,7 @@ from .llm import LLMClient, assemble_document_payload, ingest_documents, model_f
 from .session import ReportSession
 
 # Path to the vendored extraction field list (system prompt).
-_SKILL_ROOT = Path(__file__).resolve().parent.parent / "report_skill"
+_SKILL_ROOT = Path(__file__).resolve().parents[2] / "report_skill"
 SITE_FACTS_PROMPT = _SKILL_ROOT / "prompts" / "site_facts_cache.md"
 
 # Top-level keys the extraction pass owns (everything else is a raw fact).

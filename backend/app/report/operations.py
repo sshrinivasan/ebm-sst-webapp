@@ -13,7 +13,7 @@ from typing import Any
 
 from .session import ReportSession
 
-_SKILL_ROOT = Path(__file__).resolve().parent.parent / "report_skill"
+_SKILL_ROOT = Path(__file__).resolve().parents[2] / "report_skill"
 APPLY_SCRIPT = _SKILL_ROOT / "scripts" / "apply_operations.py"
 
 # Operation types supported by apply_operations.py.

@@ -19,7 +19,7 @@ from typing import Any
 from .llm import LLMClient, model_for
 from .session import ReportSession
 
-_SKILL_ROOT = Path(__file__).resolve().parent.parent / "report_skill"
+_SKILL_ROOT = Path(__file__).resolve().parents[2] / "report_skill"
 _PROMPTS = _SKILL_ROOT / "prompts"
 
 # (section, prompt file, start marker, end marker) — from SKILL.md Step 3.

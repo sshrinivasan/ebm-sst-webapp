@@ -19,7 +19,7 @@ from typing import Any
 from .session import ReportSession
 
 # Vendored skill root (sibling of this package: backend/report_skill/).
-_SKILL_ROOT = Path(__file__).resolve().parent.parent / "report_skill"
+_SKILL_ROOT = Path(__file__).resolve().parents[2] / "report_skill"
 GENERATOR_SCRIPT = _SKILL_ROOT / "scripts" / "generate_ebm_report.py"
 REFERENCES_FOLDER = _SKILL_ROOT / "references"
 
