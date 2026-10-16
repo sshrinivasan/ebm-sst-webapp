@@ -70,8 +70,9 @@ export interface IntakeQuestion {
   id: string;
   title: string;
   prompt: string;
-  type: "radio" | "text" | "textarea";
+  type: "radio" | "text" | "textarea" | "table";
   options?: string[];
+  columns?: { key: string; label: string }[];
   always?: boolean;
 }
 
@@ -177,4 +178,46 @@ export async function reportSession(sessionId: string): Promise<ReportSession> {
   const r = await fetch(`/api/report/session/${sessionId}`);
   if (!r.ok) throw new Error((await r.text()) || "Session load failed");
   return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Cached site facts (download / upload — skips the LLM extraction)
+// ---------------------------------------------------------------------------
+
+export interface FactsInspect {
+  client_name?: string | null;
+  site_lsd?: string | null;
+  source_files: { category: string; name: string }[];
+  site_facts: Record<string, unknown>;
+  extraction_flags: { message?: string; field?: string; ambiguous?: boolean }[];
+  model?: string | null;
+  extracted_at?: string | null;
+}
+
+export async function reportInspectFacts(sessionId: string, file: File): Promise<FactsInspect> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch(`/api/report/facts/inspect?session_id=${sessionId}`, { method: "POST", body: fd });
+  if (!r.ok) throw new Error((await r.text()) || "Facts inspect failed");
+  return r.json();
+}
+
+export async function reportLoadFacts(
+  sessionId: string,
+  siteFacts: Record<string, unknown>,
+  extractionFlags: { message?: string; field?: string; ambiguous?: boolean }[]
+): Promise<ReportSession> {
+  const r = await fetch(`/api/report/facts/load?session_id=${sessionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ site_facts: siteFacts, extraction_flags: extractionFlags }),
+  });
+  if (!r.ok) throw new Error((await r.text()) || "Facts load failed");
+  return r.json();
+}
+
+export async function reportDownloadFacts(sessionId: string): Promise<Blob> {
+  const r = await fetch(`/api/report/facts/${sessionId}`);
+  if (!r.ok) throw new Error((await r.text()) || "Facts download failed");
+  return r.blob();
 }

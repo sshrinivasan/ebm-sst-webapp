@@ -1,10 +1,12 @@
 """Intake question definitions + applicability logic (from intake_quiz.md).
 
 Always-ask: Q21 (report type), Q22(a) (DWDA exploratory boreholes).
-Conditional: Q22(c) (EM survey, only when no sump found), Q14 (chloride
-threshold, only when background chloride is in play), Q6 (impact volume).
+Conditional: Q22(b) (exploratory max depth, when exploratory boreholes
+exist), Q22(c) (EM survey, only when no sump found), Q6 (impact volume).
+The site-specific chloride threshold (Q14) is fixed at 100 mg/L and no
+longer asked.
 Auto-derived (shown in review, not asked): Q0 (identity reconciliation),
-Q1 (site type), Q22(b) (sump found — from excel_data.json's dwda_data).
+Q1 (site type), Q22(d) (sump found — from excel_data.json's dwda_data).
 """
 from __future__ import annotations
 
@@ -33,12 +35,27 @@ QUESTION_DEFS: dict[str, dict[str, Any]] = {
         "id": "q22a",
         "title": "DWDA exploratory boreholes",
         "prompt": (
-            "For the DWDA, how many exploratory boreholes were advanced to "
-            "locate the drilling waste disposal area, and what are their "
-            "borehole IDs? (e.g. BH26-01 to BH26-04.)"
+            "Add the exploratory boreholes advanced to locate the drilling "
+            "waste disposal area and assign each to an APEC. Boreholes from "
+            "the workbook's 'DWDA Search' row (case-insensitive) are used "
+            "automatically when present."
+        ),
+        "type": "table",
+        "columns": [
+            {"key": "borehole_id", "label": "Borehole ID"},
+            {"key": "apec", "label": "APEC"},
+        ],
+        "always": True,
+    },
+    "q22b": {
+        "id": "q22b",
+        "title": "DWDA exploratory borehole max depth",
+        "prompt": (
+            "What is the maximum depth (m) the DWDA exploratory boreholes "
+            "were advanced to? (e.g. 6.0.)"
         ),
         "type": "text",
-        "always": True,
+        "always": False,
     },
     "q22c": {
         "id": "q22c",
@@ -55,16 +72,6 @@ QUESTION_DEFS: dict[str, dict[str, Any]] = {
         ],
         "always": False,
     },
-    "q14": {
-        "id": "q14",
-        "title": "Site-specific chloride threshold",
-        "prompt": (
-            "What is the site-specific chloride threshold used for "
-            "delineation (mg/kg and/or mg/L)?"
-        ),
-        "type": "text",
-        "always": False,
-    },
     "q6": {
         "id": "q6",
         "title": "Estimated volume of impact",
@@ -77,7 +84,7 @@ QUESTION_DEFS: dict[str, dict[str, Any]] = {
 }
 
 # Auto-derived questions surfaced in the review step (not asked).
-AUTO_DERIVED_IDS = ["q0", "q1", "q22b"]
+AUTO_DERIVED_IDS = ["q0", "q1", "q22d"]
 
 
 # ---------------------------------------------------------------------------
@@ -91,27 +98,6 @@ def _dwda_found(session: ReportSession) -> bool:
     return dwda is not None and bool(dwda)
 
 
-def _background_chloride_in_play(session: ReportSession) -> bool:
-    """Q14: background chloride detected AND a background outcome applies.
-
-    Heuristic over excel_data.json: look for chloride delineation data with a
-    background outcome (NOT_ACHIEVED_BACKGROUND / ACHIEVED_ALL with
-    background). Falls back to True when the data is ambiguous so the
-    question is asked rather than silently skipped.
-    """
-    data = session.excel_data
-    for key in ("chloride_delineation_data", "cl_delineation", "chloride"):
-        block = data.get(key)
-        if isinstance(block, dict):
-            outcome = str(block.get("outcome", "")).upper()
-            if "BACKGROUND" in outcome:
-                return True
-            if "ACHIEVED" in outcome:
-                return True
-    # No explicit signal: ask if any chloride data exists at all.
-    return bool(data.get("chloride_delineation_data") or data.get("cl_delineation"))
-
-
 def _has_impacts(session: ReportSession) -> bool:
     """Q6: estimated volume of impact applies when exceedances exist."""
     data = session.excel_data
@@ -123,6 +109,17 @@ def _has_impacts(session: ReportSession) -> bool:
     return False
 
 
+def _has_exploratory_boreholes(session: ReportSession) -> bool:
+    """Q22(b): max depth applies when exploratory boreholes were given (Q22a)."""
+    value = (session.intake_answers or {}).get("q22a")
+    if isinstance(value, list):
+        return any(
+            isinstance(row, dict) and str(row.get("borehole_id", "")).strip()
+            for row in value
+        )
+    return bool(value and str(value).strip())
+
+
 def applicable_questions(session: ReportSession) -> list[dict[str, Any]]:
     """Return the intake questions that apply for this session's data."""
     result: list[dict[str, Any]] = []
@@ -130,9 +127,9 @@ def applicable_questions(session: ReportSession) -> list[dict[str, Any]]:
         if q["always"]:
             result.append(q)
             continue
-        if qid == "q22c" and not _dwda_found(session):
+        if qid == "q22b" and _has_exploratory_boreholes(session):
             result.append(q)
-        elif qid == "q14" and _background_chloride_in_play(session):
+        elif qid == "q22c" and not _dwda_found(session):
             result.append(q)
         elif qid == "q6" and _has_impacts(session):
             result.append(q)
@@ -158,7 +155,7 @@ def auto_derived_summary(session: ReportSession) -> list[dict[str, Any]]:
             "value": facts.get("site_type"),
         },
         {
-            "id": "q22b",
+            "id": "q22d",
             "title": "Sump / soil waste-mix zone found",
             "value": _dwda_found(session),
         },
@@ -173,5 +170,10 @@ def validate_answers(answers: dict[str, Any], session: ReportSession) -> list[st
     for qid in applicable:
         value = answers.get(qid)
         if value is None or (isinstance(value, str) and not value.strip()):
+            errors.append(f"{QUESTION_DEFS[qid]['title']} is required.")
+        elif isinstance(value, list) and not any(
+            isinstance(row, dict) and str(row.get("borehole_id", "")).strip()
+            for row in value
+        ):
             errors.append(f"{QUESTION_DEFS[qid]['title']} is required.")
     return errors

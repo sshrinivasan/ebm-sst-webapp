@@ -54,6 +54,15 @@ this step:
    task from the mechanical `borehole_logs.boreholes[]` facts dump described
    below (which stays purely mechanical) — see "Borehole log analysis →
    `borehole_logs.analysis`" below for the full method.
+3. **Top-level `client_name` is reconciled from the borehole log `CLIENT:`
+   header — the borehole logs are the source of truth for who retained EBM.**
+   Set top-level `client_name` to `borehole_logs.log_sets[].client_name_header`
+   (the most common value if multiple log sets disagree). The ABAData
+   `licensee` is the well owner/operator, **not** the client — never use it
+   for `client_name` unless no borehole logs were provided this run (then
+   fall back to `abadata.licensee`). If the two disagree, still record the
+   licensee verbatim under `abadata.licensee` and add an `extraction_flags`
+   entry noting the client/licensee difference.
 
 All of the *other* logic stays where it already lived — in
 `generate_section2_3()`, `generate_section2_4()` (Python, formerly the retired
@@ -172,6 +181,7 @@ describing what was found instead of guessing.
 | `total_gas_production` | "Total gas production" row (include units) | |
 | `total_water_production` | "Total water production" row (include units) | |
 | `total_oil_production` | "Total crude oil/bitumen production" row (include units) | |
+| `area_office` | "Area office" row | new field |
 | `landscape` | The row/line labeled "Landscape," found anywhere in the doc — see "Landscape — search by label, not by table position" above | new field |
 | `spill_records` | Table 4 (spill-records table) + surrounding narrative paragraphs | see "Spill records" below |
 | `associated_spills_text` | Derived from `spill_records` | see "Spill records" below |
@@ -357,10 +367,10 @@ mechanical lookup.
 - `apecs` / `copcs` are short noun-phrase lists, not sentences — pull the
   actual named areas/contaminants the source document identifies.
 - Do **not** apply any report-specific wording or formatting here (how to
-  phrase it for the exec summary, what register Section 1.2.1's table wants,
-  etc.) — those decisions stay in `exec_summary.md` and
-  `s1_2_1_previous_assessments.md`, which read these fields and reshape them
-  for their own output.
+  phrase it for the exec summary, etc.) — that stays in `exec_summary.md`.
+  Section 1.2.1's table now copies `findings_summary` verbatim (Python,
+  `generate_section1_2_1()`), so write each `findings_summary` as a clean,
+  factual narrative paragraph that can go into the report as-is.
 - Do not invent findings that aren't actually stated in the source.
 - **Normalize known APEC terminology** in `apecs` and `findings_summary`
   (but not in verbatim fields like `additional_info_text`): a source document
@@ -579,7 +589,7 @@ Do **not** write or update this file when the cache was reused unchanged.
     "site_name": "Canlin MEDHAT 8-13-16-1",
     "uwi": "102/08-13-016-01W4/0",
     "surface_location": "<verbatim value from the doc's 'Surface Location' row — not yet extracted for this site's cache; do not fabricate>",
-    "licensee": "Canlin Energy Corporation",
+    "licensee": "Sanling Energy Ltd.",
     "license_no": "0102497",
     "license_status": "Abandoned (status date: January 25, 2021)",
     "spud_date": "August 9, 1983",
@@ -588,6 +598,7 @@ Do **not** write or update this file when the cache was reused unchanged.
     "total_gas_production": "4,169,300 m³",
     "total_water_production": "No production total found; not confirmation of zero production.",
     "total_oil_production": "No production total found; not confirmation of zero production.",
+    "area_office": "Medicine Hat",
     "landscape": "Low relief – hummocky",
     "spill_records": [
       {
@@ -767,6 +778,9 @@ Notes on fields:
   `borehole_logs.log_sets[]`, but the underlying `borehole_logs` block
   itself is still rebuilt fresh every run (see below) — it's not reused from
   a prior `site_facts.json` the way `abadata`/`phaseview`/`phase1_esa` are.
+  **`client_name` is the borehole log `CLIENT:` header value (exception 3
+  above) — never the ABAData `licensee`, which is the well owner and is a
+  different thing.**
 - `uwi` (top-level) is the one reconciled value across `abadata.uwi` and
   `phase1_esa.uwi`, resolved by Q0 the same way as `site_lsd` — see
   `prompts/intake_quiz.md` Q0. It can be `null` if neither source has a

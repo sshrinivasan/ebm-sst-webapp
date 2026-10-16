@@ -6,6 +6,7 @@ produced by Step 3 and applies it to the partial DOCX in one pass (Step 4).
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from .session import ReportSession
 
 _SKILL_ROOT = Path(__file__).resolve().parents[2] / "report_skill"
 APPLY_SCRIPT = _SKILL_ROOT / "scripts" / "apply_operations.py"
+ASSEMBLE_SCRIPT = _SKILL_ROOT / "scripts" / "assemble_operations.py"
 
 # Operation types supported by apply_operations.py.
 KNOWN_OPS = {
@@ -34,6 +36,40 @@ class OperationsError(RuntimeError):
     """Raised when operations are invalid or the apply step fails."""
 
 
+def _marker_fields(op: dict[str, Any]) -> tuple[str, str]:
+    """Resolve a replace_between op's start/end markers across both field-name
+    conventions: ``start_placeholder``/``end_placeholder`` (what
+    ``assemble_operations.py`` and ``apply_operations.py`` use) and
+    ``start_text``/``end_text`` (the older convention)."""
+    return (
+        str(op.get("start_placeholder") or op.get("start_text") or ""),
+        str(op.get("end_placeholder") or op.get("end_text") or ""),
+    )
+
+
+def normalize_marker_fields(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fill both marker field-name conventions on every replace_between op.
+
+    ``assemble_operations.py`` emits ``start_placeholder``/``end_placeholder``;
+    ``apply_operations.py`` reads those, while ``validate_operations`` accepts
+    either. Filling both keeps every consumer working regardless of which
+    convention a producer used.
+    """
+    for op in operations:
+        if not isinstance(op, dict) or op.get("op") != "replace_between":
+            continue
+        start, end = _marker_fields(op)
+        if not op.get("start_placeholder"):
+            op["start_placeholder"] = start
+        if not op.get("end_placeholder"):
+            op["end_placeholder"] = end
+        if not op.get("start_text"):
+            op["start_text"] = start
+        if not op.get("end_text"):
+            op["end_text"] = end
+    return operations
+
+
 def validate_operations(operations: list[dict[str, Any]]) -> list[str]:
     """Return a list of validation errors (empty when valid)."""
     errors: list[str] = []
@@ -45,8 +81,12 @@ def validate_operations(operations: list[dict[str, Any]]) -> list[str]:
         if op_type not in KNOWN_OPS:
             errors.append(f"Operation {i}: unknown op '{op_type}'.")
         if op_type == "replace_between":
-            if not op.get("start_text") or not op.get("end_text"):
-                errors.append(f"Operation {i}: replace_between needs start_text/end_text.")
+            start, end = _marker_fields(op)
+            if not start or not end:
+                errors.append(
+                    f"Operation {i}: replace_between needs start/end markers "
+                    "(start_placeholder/end_placeholder or start_text/end_text)."
+                )
             if "blocks" not in op:
                 errors.append(f"Operation {i}: replace_between needs a blocks list.")
         elif op_type == "insert_blocks":
@@ -114,3 +154,61 @@ def apply_operations(
         })
     session.final_docx = str(output_docx)
     return output_docx
+
+
+def assemble_operations(
+    session: ReportSession,
+    *,
+    input_docx: Path,
+    timeout: int = 120,
+) -> list[dict[str, Any]]:
+    """Run ``assemble_operations.py``: authored.json → operations + practitioner info.
+
+    Reads the session's ``authored.json`` (Step 3 one-call output) and the
+    partial DOCX, validates the authored content (including the Section 5
+    gate), and writes ``operations.json`` plus ``practitioner_info.json`` into
+    the session dir. Both are loaded back onto the session.
+    """
+    if not ASSEMBLE_SCRIPT.exists():
+        raise OperationsError(f"assemble_operations.py not found: {ASSEMBLE_SCRIPT}")
+    if not input_docx.exists():
+        raise OperationsError(f"Input DOCX not found: {input_docx}")
+    if not session.authored:
+        raise OperationsError("No authored.json to assemble — run authoring first.")
+
+    authored_path = session.save_authored()
+    excel_data_path = session.excel_data_path or str(session.dir / "excel_data.json")
+    operations_path = session.dir / "operations.json"
+
+    cmd = [
+        sys.executable,
+        str(ASSEMBLE_SCRIPT),
+        str(authored_path),
+        str(input_docx),
+        str(excel_data_path),
+        str(operations_path),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(_SKILL_ROOT),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise OperationsError(f"assemble_operations timed out after {timeout}s.") from exc
+
+    if proc.returncode != 0:
+        raise OperationsError(
+            f"assemble_operations failed (exit {proc.returncode}):\n"
+            f"{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
+        )
+
+    session.operations = normalize_marker_fields(
+        json.loads(operations_path.read_text(encoding="utf-8"))
+    )
+    pi_path = session.dir / "practitioner_info.json"
+    if pi_path.exists():
+        session.practitioner_info = json.loads(pi_path.read_text(encoding="utf-8"))
+    return session.operations

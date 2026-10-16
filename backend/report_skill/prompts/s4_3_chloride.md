@@ -170,6 +170,8 @@ Pick based on `samples_collected` / `all_below_100` / `vertical_status` /
 > Lateral delineation to the Tier 1 standard of 100 mg/L chloride was achieved in all cardinal directions, as illustrated by the 100 mg/L contour in Figure 2. Vertical delineation of chloride impacts is shown in Table 4 and in Figure 1 below, which presents the vertical soil chloride profile.
 
 ### Same as above but `background_elevated = true` (achieved relative to background, not Tier 1 itself) -> ACHIEVED_RELATIVE_TO_BACKGROUND
+**Section 5 references:** background chloride is Section 5 in the report, so any "(Section 5)" reference points there. If `section5_present` is false (Section 5 removed), leave out every Section 5 reference and its parenthetical.
+
 > Lateral delineation was achieved relative to local background conditions; however, concentrations exceeded the Tier 1 standard of 100 mg/L. A comprehensive analysis of the on-site background chloride is provided in Section 5, referencing the naturally occurring chloride, which is prevalent in the {region} region.
 >
 > For this site, the delineation criteria of {threshold from Q14} was used to define the impact area, illustrated by the {threshold} contour in Figure 2. The vertical delineation of chloride impacts is shown in Table 4 and in Figure 1 below, which presents the vertical soil chloride profile.
@@ -179,10 +181,10 @@ the document (e.g. Section 2.4's natural subregion); leave as a literal
 placeholder if not otherwise available. Never invent a region name.
 
 ### Vertical/lateral not achieved, cause is `background_elevated` -> NOT_ACHIEVED_BACKGROUND
-> Lateral delineation to the Tier 1 standard of 100 mg/L chloride was not achieved due to the naturally occurring chloride identified at {background borehole(s) from the not_achieved lateral direction(s)} (Section 6). However, vertical delineation was achieved at {an achieved/overridden borehole}, and field screening results from the surrounding boreholes do not indicate any chloride impacts. Additionally, the EM31 survey showed no indication of on-site hotspots.
+> Lateral delineation to the Tier 1 standard of 100 mg/L chloride was not achieved due to the naturally occurring chloride identified at {background borehole(s) from the not_achieved lateral direction(s)} (Section 5). However, vertical delineation was achieved at {an achieved/overridden borehole}, and field screening results from the surrounding boreholes do not indicate any chloride impacts. Additionally, the EM31 survey showed no indication of on-site hotspots.
 
 Only include the EM31 sentence if an EM survey was actually part of this
-run's data (see Q22(c)/`s4_2_dwda_nil.md`) — leave it out otherwise rather
+run's data (see the `em_survey` run setting, Q22(c)) — leave it out otherwise rather
 than asserting a survey that didn't happen.
 
 ### `vertical_status = not_achieved`, lateral achieved in some directions but not others (not a background cause) -> PARTIAL_MIXED

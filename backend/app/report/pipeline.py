@@ -2,8 +2,8 @@
 
 Stages (mirrors the skill's Steps 2 → 3 → 4 → 6):
 1. Regenerate the partial DOCX with intake answers (generator subprocess)
-2. LLM section authoring (one call per Step 3 section prompt)
-3. Apply all operations in one pass (apply_operations.py)
+2. One-call LLM authoring → authored.json (Step 3)
+3. Assemble operations (assemble_operations.py) + apply in one pass
 4. Practitioner information hand-off DOCX
 
 The user never interacts mid-pipeline; ``progress`` callbacks report stage
@@ -17,7 +17,7 @@ from typing import Any, Callable
 from .extract import extract_site_facts
 from .generator import run_generator
 from .llm import LLMClient
-from .operations import apply_operations
+from .operations import apply_operations, assemble_operations
 from .practitioner import write_practitioner_docx
 from .sections import author_sections
 from .session import ReportSession, SessionError
@@ -59,15 +59,19 @@ def run_hands_off_pipeline(
         figures_zip_path=figures_zip,
     )
 
-    # Stage 2: LLM section authoring.
+    # Stage 2: one-call LLM authoring -> authored.json, then assemble it into
+    # operations.json + practitioner_info.json.
     if progress:
-        progress("Authoring sections…")
+        progress("Authoring all report sections (single LLM call)…")
     author_sections(session, llm, progress=progress)
+    if progress:
+        progress("Assembling operations…")
+    partial = Path(session.partial_docx or "")
+    assemble_operations(session, input_docx=partial)
 
     # Stage 3: apply all operations in one pass.
     if progress:
         progress("Applying operations…")
-    partial = Path(session.partial_docx or "")
     final = output_dir / "EBM_Report_Final.docx"
     apply_operations(session, input_docx=partial, output_docx=final)
 

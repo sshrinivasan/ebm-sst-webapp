@@ -251,10 +251,26 @@ def generate_cover_page(doc, references_folder, site_lsd=None, client_name=None)
                 _make_run(para, "\n" + "\n".join(address_lines[1:]), bold=False)
             print(f"  ✓ Cover page client: {address_lines[0]}")
         else:
+            # No client file matched — still write the "Prepared For:" label so
+            # the cover page block is complete (name bold, label not, matching
+            # the template's own convention).
+            _make_run(para, "Prepared For:\n", bold=False)
             _make_run(para, client_name or "CLIENT NAME", bold=True)
             print(f"  ⚠ No matching prompts/clients/*.md file found, using bare name: {client_name}")
     else:
         print("  ⚠ <INSERT_CLIENT_START> marker not found in any table cell")
+
+
+def _section5_has_bg_chloride(wb):
+    """Single source of truth: True iff Tier 1 Exceedances has a Background-APEC Chloride row."""
+    if 'Tier 1 Exceedances' not in wb.sheetnames:
+        return False
+    rows = list(wb['Tier 1 Exceedances'].iter_rows(values_only=True))
+    if not rows:
+        return False
+    hdr = list(rows[0])
+    ai, gi = hdr.index('APEC'), hdr.index('Chemical Group')
+    return any(r[ai] == 'Background' and r[gi] == 'Chloride' for r in rows[1:])
 
 
 def remove_section5_if_no_bg_chloride(doc, wb):
@@ -263,13 +279,7 @@ def remove_section5_if_no_bg_chloride(doc, wb):
     Chemical Group='Chloride'; 'Excluded Background' does not count). Otherwise delete the whole
     section, from its Heading 1 up to (not including) the next Heading 1."""
     ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-    has_bg = False
-    if 'Tier 1 Exceedances' in wb.sheetnames:
-        rows = list(wb['Tier 1 Exceedances'].iter_rows(values_only=True))
-        if rows:
-            hdr = list(rows[0])
-            ai, gi = hdr.index('APEC'), hdr.index('Chemical Group')
-            has_bg = any(r[ai] == 'Background' and r[gi] == 'Chloride' for r in rows[1:])
+    has_bg = _section5_has_bg_chloride(wb)
     if has_bg:
         print("  ✓ Section 5 kept: Background samples with chloride > 100 mg/L present")
         return False
@@ -1610,6 +1620,8 @@ def generate_section7_1_apec_review(doc, wb):
             panel = dwda_panel
         else:
             panel = panel_by_apec.get(apec_name)
+        if panel is None and apec_name == "DWDA":
+            continue  # no DWDA-Char row (NIL site or no DWDA) — nothing to tabulate, not a warning
         if panel is None:
             print(f"  ⚠ Section 7.1: no panel data found for APEC '{apec_name}' — skipping this row")
             continue
@@ -2148,6 +2160,8 @@ def _build_apec_payload_entry(area, ecsar_rows, exc_rows, panel_by_apec, cat_ord
             "deepest_depth_m": deepest["depth_m"],
             "deepest_chloride_mg_l": deepest["chloride_mg_l"],
             "vertical_closure_achieved": not deepest_exceeds,
+            "exceed_min_depth_m": min(d["depth_m"] for d in exceeding),
+            "exceed_max_depth_m": max(d["depth_m"] for d in exceeding),
         })
     delineation.sort(key=lambda d: -d["max_chloride_mg_l"])
 
@@ -2252,7 +2266,7 @@ def _dwda_char_delin_boreholes(panel_by_apec):
     zone's extent — keyed by an APEC column value starting with "DWDA-Char"
     or "DWDA-Delin" (case-insensitive; also matches the longer
     "DWDA-Characterization"/"DWDA-Delineation" spellings some workbooks
-    use). See prompts/s4_2_dwda.md for how these feed the Summary of
+    use). See generate_section4_2_dwda() for how these feed the Summary of
     Results intro sentences.
 
     Returns {"characterization_boreholes": [...], "delineation_boreholes":
@@ -2280,7 +2294,7 @@ def _dwda_impact_depth_range(wb, borehole_id):
     """Look up a borehole's waste-mix-zone impact depth range from the
     `Borehole_Characteristics` sheet's `Top of Impact`/`Bottom of Impact`
     columns (keyed by `Location`). Used for the DWDA "waste-mix-zone
-    identification bullet" in prompts/s4_2_dwda.md's step 8 — this was
+    identification bullet" in generate_section4_2_dwda()'s step 8 — this was
     previously (wrongly) documented as a field/visual observation with no
     analytical source; it's actually a plain lookup in this sheet, caught
     only by checking the real Excel data, not by trusting the earlier
@@ -3296,6 +3310,272 @@ def compute_chloride_delineation_data(wb, site_facts):
 
 
 
+# ── Section 4.2 DWDA and DWDA NIL FINDINGS — pure Python ────────────────────
+# Converted from the retired generate_section4_2_dwda() and generate_section4_2_dwda().
+# `_apec_summary_blocks` implements prompts/s4_2_2_apecs.md's "Summary of
+# Results" wording rules and is shared so Section 4.2.2 can reuse it.
+
+def _fmtn(v):
+    """Integers without decimals; floats to at most 2 decimals, trailing zeros dropped."""
+    if isinstance(v, (int, float)) and float(v).is_integer():
+        return str(int(v))
+    return f"{round(float(v), 2):g}"
+
+
+def _depth_span(lo, hi):
+    return _fmtn(lo) if lo == hi else f"{_fmtn(lo)} to {_fmtn(hi)}"
+
+
+def _bold_runs(parts):
+    """parts: list of (text, bold) -> {"style": "bullet", "runs": [...]}"""
+    return {"style": "bullet", "runs": [({"text": t, "bold": True} if b else {"text": t}) for t, b in parts]}
+
+
+def _exceedance_clause(excs, label="SCARG exceedance"):
+    n = len(excs)
+    if n == 0:
+        return f", with no {label}s."
+    plural = "s" if n != 1 else ""
+    if n <= 3:
+        items = ", ".join(f"{e['sample_id']} at {_fmtn(e['depth_m'])} m" for e in excs)
+        return f", with {n} {label}{plural} ({items})."
+    ids = sorted({e["sample_id"] for e in excs}, key=_natural_key)
+    depths = [e["depth_m"] for e in excs]
+    return f", with {n} {label}{plural} ({_join_with_and(ids)}; {_depth_span(min(depths), max(depths))} m)."
+
+
+def _apec_summary_blocks(p, guideline=100):
+    """Blocks from the 'Summary of Results' heading onward for one APEC payload entry."""
+    blocks = [{"style": "smalltitle", "text": "Summary of Results"}]
+    any_exceed = False
+    ph = p.get("ph_exceedances") or []
+    if ph:
+        any_exceed = True
+        if len(ph) == 1:
+            e = ph[0]
+            blocks.append({"style": "bullet", "text": f"The soil pH value in one sample ({e['sample_id']}, {_fmtn(e['depth_m'])} m) exceeded the guideline range of 6.0–8.5, with a value of {_fmtn(e['value'])}."})
+        else:
+            items = ", ".join(f"{e['sample_id']} at {_fmtn(e['depth_m'])} m" for e in ph)
+            vals = ", ".join(_fmtn(e["value"]) for e in ph)
+            blocks.append({"style": "bullet", "text": f"The soil pH value in {len(ph)} samples ({items}) exceeded the guideline range of 6.0–8.5, with values of {vals}."})
+    ec_c, sar_c = p.get("ec_categories") or [], p.get("sar_categories") or []
+    ec_x, sar_x = p.get("ec_exceedances") or [], p.get("sar_exceedances") or []
+    any_exceed = any_exceed or bool(ec_x or sar_x)
+    if ec_c and ec_c == sar_c and len(ec_c) == 1 and not ec_x and not sar_x:
+        blocks.append(_bold_runs([("Both EC and SAR were in the ", False), (ec_c[0], True), (" soil rating category, with no SCARG exceedances.", False)]))
+    else:
+        for name, cats, xs, plural in (("EC", ec_c, ec_x, True), ("SAR", sar_c, sar_x, False)):
+            if not cats:
+                continue
+            tail = _exceedance_clause(xs)
+            if len(cats) == 1:
+                parts = [(f"{name} values were within the ", False), (cats[0], True), (" soil rating category", False)]
+            else:
+                parts = [(f"{name} values ranged from the ", False), (cats[0], True), (" to ", False), (cats[-1], True),
+                         (" soil rating categories" if plural else " soil rating category", False)]
+            parts.append((tail, False))
+            blocks.append(_bold_runs(parts))
+    # chloride
+    cl_l, cl_kg = p.get("chloride_mg_l"), p.get("chloride_mg_kg")
+    dv = p.get("chloride_vertical_delineation") or []
+    if cl_l:
+        lo, hi = cl_l["min"], cl_l["max"]
+        kg = f" ({_fmtn(cl_kg['min'])} to {_fmtn(cl_kg['max'])} mg/kg)" if cl_kg and cl_kg["min"] != cl_kg["max"] else (f" ({_fmtn(cl_kg['min'])} mg/kg)" if cl_kg else "")
+        if dv:
+            any_exceed = True
+            at = ", ".join(f"{d['sample_id']} ({_depth_span(d.get('exceed_min_depth_m', d['deepest_depth_m']), d.get('exceed_max_depth_m', d['deepest_depth_m']))} mbgs)" for d in sorted(dv, key=lambda x: _natural_key(x['sample_id'])))
+            rng = f"Chloride concentrations ranged from {_fmtn(lo)} to {_fmtn(hi)} mg/L{kg}" if lo != hi else f"The chloride concentration was {_fmtn(lo)} mg/L{kg}"
+            blocks.append({"style": "bullet", "text": f"{rng} and exceeded the {guideline:g} mg/L delineation guideline at {at}."})
+        elif lo == hi:
+            blocks.append({"style": "bullet", "text": f"The chloride concentration was {_fmtn(lo)} mg/L{kg}."})
+        else:
+            blocks.append({"style": "bullet", "text": f"Chloride concentrations ranged from {_fmtn(lo)} to {_fmtn(hi)} mg/L{kg}."})
+    # non-salinity
+    groups = {}
+    for e in p.get("non_salinity_exceedances") or []:
+        groups.setdefault(e["parameter"], []).append(e)
+    for param, es in groups.items():
+        any_exceed = True
+        if len(es) == 1:
+            e = es[0]
+            blocks.append({"style": "bullet", "text": f"One sample, {e['sample_id']} ({_fmtn(e['depth_m'])} m), exceeded for {param}. [Vertical delineation PLACEHOLDER — was achieved at {{X}} mbgs, and lateral delineation was PLACEHOLDER.]".replace("{X}", "X")})
+        else:
+            items = ", ".join(f"{e['sample_id']} at {_fmtn(e['depth_m'])} m" for e in es)
+            blocks.append({"style": "bullet", "text": f"{len(es)} samples exceeded for {param} (reference boreholes/depths: {items}). [Vertical and lateral delineation PLACEHOLDER.]"})
+    if any_exceed:
+        blocks.append({"style": "bullet", "text": "All other parameters complied with Tier 1."})
+    # vertical delineation of chloride
+    ach = [d for d in dv if d["vertical_closure_achieved"]]
+    nach = [d for d in dv if not d["vertical_closure_achieved"]]
+    g = f"{guideline:g}"
+    if dv:
+        if not nach and len(ach) == 1:
+            d = ach[0]
+            t = f"Vertical closure to {g} mg/L for chloride was achieved at the worst-case borehole ({d['sample_id']}) at {_fmtn(d['deepest_depth_m'])} mbgs."
+        elif not nach:
+            t = (f"Vertical closure to {g} mg/L for chloride was achieved at {_join_with_and([d['sample_id'] for d in ach])} at "
+                 f"{_join_with_and([_fmtn(d['deepest_depth_m']) for d in ach])} mbgs, respectively.")
+        elif ach:
+            t = (f"Vertical closure to {g} mg/L for chloride was achieved at {_join_with_and([d['sample_id'] for d in ach])} at "
+                 f"{_join_with_and([_fmtn(d['deepest_depth_m']) for d in ach])} mbgs but not at the {len(nach)} worst-case location{'s' if len(nach) != 1 else ''}. "
+                 f"At {_join_with_and([d['sample_id'] for d in nach])}, residual chloride concentration{'s' if len(nach) != 1 else ''} of "
+                 f"{_join_with_and([_fmtn(d['deepest_chloride_mg_l']) for d in nach])} mg/L {'were' if len(nach) != 1 else 'was'} identified at "
+                 f"{_join_with_and([_fmtn(d['deepest_depth_m']) for d in nach])} mbgs.")
+        else:
+            t = "Vertical delineation for chloride was not achieved."
+        blocks.append({"style": "bullet", "text": t})
+    # naturally-occurring justification placeholders (always placeholders): one block per
+    # parameter (EC / SAR / pH) covering every justified sample of that parameter.
+    for name, xs in (("EC", ec_x), ("SAR", sar_x), ("pH", ph)):
+        js = [e for e in xs if str(e.get("justified")).strip().lower() == "yes"]
+        if not js:
+            continue
+        by_bh = {}
+        for e in js:
+            by_bh.setdefault(e["sample_id"], []).append(e["depth_m"])
+        locs = _join_with_and([f"{bh} ({_join_with_and([_fmtn(d) for d in sorted(ds)])} m)" for bh, ds in sorted(by_bh.items(), key=lambda kv: _natural_key(kv[0]))])
+        depth_txt = _depth_span(min(e["depth_m"] for e in js), max(e["depth_m"] for e in js))
+        pl = "s" if len(js) != 1 else ""
+        blocks.append({"style": "body", "text": f"For the {name} exceedance{pl} at {locs}:"})
+        for line in (f"The chloride concentration of XX mg/L is comparable to background conditions. [PRACTITIONER TO CONFIRM/EDIT]",
+                     f"The {name} value{pl} {'is' if not pl else 'are'} associated with elevated levels of naturally occurring [PRACTITIONER TO SPECIFY — e.g. sulphate / sodium sulphate ion imbalance].",
+                     f"The sample location{pl} {'is' if not pl else 'are'} [below/within] the shallow root zone at {depth_txt} mbgs. [PRACTITIONER TO CONFIRM]",
+                     f"Based on the above, the elevated {name} {'is' if not pl else 'values are'} due to naturally occurring conditions and {'is' if not pl else 'are'} assumed to have little or no environmental risk. [PRACTITIONER TO CONFIRM]"):
+            blocks.append({"style": "bullet", "text": line})
+    return blocks
+
+
+# ── Section 4.2.2+ per-APEC subsections — pure Python ───────────────────────
+# Converted from the retired prompts/s4_2_2_apecs.md. One heading + intro +
+# panel bullets + Summary of Results per non-background APEC, in Excel row order.
+# Site-context clause, PHC/metals delineation status and the naturally-occurring
+# reasoning stay as bracketed practitioner placeholders (never invented).
+
+def _apec_max_depth_m(site_facts, sample_ids):
+    depths = {b.get("borehole_id"): b.get("total_depth_m") for b in ((site_facts or {}).get("borehole_logs") or {}).get("boreholes", [])}
+    ds = [depths.get(i) for i in sample_ids]
+    if ds and all(isinstance(d, (int, float)) for d in ds):
+        return max(ds)
+    return None
+
+
+def generate_section4_2_apecs(doc, site_facts, apec_payload):
+    from apply_operations import op_replace_between
+    blocks = []
+    for p in apec_payload or []:
+        ids = sorted(p.get("sample_ids") or [], key=_natural_key)
+        n_bh, n_s = len(ids), p.get("num_samples") or 0
+        md = _apec_max_depth_m(site_facts, ids)
+        md_txt = _fmtn(md) if md is not None else "X"
+        bh_txt = _join_with_and(ids) if ids else "[BOREHOLES]"
+        blocks.append({"style": "heading3", "text": p["area"]})
+        blocks.append({"style": "body", "text": (
+            f"{n_bh} borehole{'s' if n_bh != 1 else ''} ({bh_txt}) {'were' if n_bh != 1 else 'was'} advanced [SITE-CONTEXT PLACEHOLDER] "
+            f"to a maximum depth of {md_txt} mbgs. {n_s} sample{'s' if n_s != 1 else ''} {'were' if n_s != 1 else 'was'} analyzed for some or all of the following:")})
+        panel = p.get("parameter_panel") or []
+        if panel:
+            blocks += [{"style": "bullet", "text": x} for x in panel]
+        else:
+            blocks.append({"style": "bullet", "text": "[PARAMETER PANEL — PRACTITIONER TO CONFIRM]"})
+        sub = _apec_summary_blocks(p, p.get("chloride_guideline_mg_l") or 100)
+        had_compliance = any(b.get("text") == "All other parameters complied with Tier 1." for b in sub)
+        if not had_compliance and any(x not in ("Salinity",) for x in panel):
+            # no exceedances anywhere but more than salinity analyzed: state compliance
+            sub.append({"style": "bullet", "text": "All other parameters in the analytical panel complied with Tier 1."})
+        blocks += sub
+    ok = op_replace_between(doc, {"start_placeholder": "<INSERT_42_APECS_START>", "end_placeholder": "<INSERT_42_APECS_END>", "blocks": blocks})
+    print(f"  {'✓' if ok else '✗'} generate_section4_2_apecs: {len(apec_payload or [])} APEC subsection(s), {len(blocks)} block(s)")
+    return ok
+
+
+def _dwda_requirement_clause(req, swmz=True):
+    depth, n = (req or {}).get("wellbore_depth_m"), (req or {}).get("required_sample_count")
+    noun = "DWDA soil-waste mix zone (SWMZ)" if swmz else "DWDA soil-waste mix zone"
+    if depth is None or n is None:
+        return f"XX representative samples of the {noun} are required based on the wellbore depth (AER, 2014)."
+    rng = "less than 1,500 m" if depth < 1500 else ("between 1,500 and 2,500 m" if depth <= 2500 else "greater than 2,500 m")
+    return f"As the wellbore depth was {rng}, {n} representative samples of the {noun} are required (AER, 2014)."
+
+
+def _exploratory_sentence(max_depth_m, ids, nil_variant=None):
+    """nil_variant: None (found case), 'A', 'B' or 'C' — only changes 'in/at the most likely locations'.
+    max_depth_m comes from the run setting only (intake quiz) — never from the borehole logs."""
+    if not ids:
+        return "[NO EXPLORATORY BOREHOLES WERE ADVANCED SPECIFICALLY FOR THE DWDA SEARCH — PRACTITIONER TO CONFIRM WHETHER ANY OF THE ADVANCED BOREHOLES SERVE AS DWDA SEARCH LOCATIONS AND REVISE.]"
+    mx = _fmtn(max_depth_m) if isinstance(max_depth_m, (int, float)) else "[X]"
+    n = len(ids)
+    lst = _format_borehole_id_range_list(ids)
+    prep = "in the most likely locations for a DWDA based on" if nil_variant == "A" else "at the most likely locations for a DWDA, based on"
+    subj = f"{n} exploratory boreholes ({lst}) were" if n != 1 else f"1 exploratory borehole ({lst}) was"
+    if nil_variant == "A":
+        subj = f"{n} boreholes ({lst}) were" if n != 1 else f"1 borehole ({lst}) was"
+    return (f"{subj[0].upper() + subj[1:]} advanced to a maximum depth of {mx} mbgs {prep} the site layout, "
+            f"landscape position, topography, and historical drilling practices.")
+
+
+def generate_section4_2_dwda(doc, site_facts, dwda_payload, dwda_requirement, exploratory_ids, em_survey="none", exploratory_max_depth_m=None):
+    """Fill exactly one of <INSERT_42_DWDA_*> (sump found, dwda_payload present) or
+    <INSERT_42_DWDA_NIL_*> (not found); the other gets an empty block list so its
+    heading and placeholder text are removed."""
+    from apply_operations import op_replace_between
+    exploratory_ids = list(exploratory_ids or [])
+    # A sump counts as "found" only when DWDA-Char/Delin boreholes exist in Borehole Rationale.
+    if dwda_payload and not (dwda_payload.get("characterization_boreholes") or dwda_payload.get("delineation_boreholes")):
+        dwda_payload = None
+    if not dwda_payload and not exploratory_ids:
+        # No DWDA-Char/Delin rows and no exploratory boreholes (no "DWDA Search" row, none given in
+        # the intake quiz) -> neither DWDA subsection is written.
+        ok1 = op_replace_between(doc, {"start_placeholder": "<INSERT_42_DWDA_START>", "end_placeholder": "<INSERT_42_DWDA_END>", "blocks": []})
+        ok2 = op_replace_between(doc, {"start_placeholder": "<INSERT_42_DWDA_NIL_START>", "end_placeholder": "<INSERT_42_DWDA_NIL_END>", "blocks": []})
+        print(f"  {'✓' if ok1 and ok2 else '✗'} generate_section4_2_dwda: NEITHER subsection written (no DWDA-Char/Delin rows and no exploratory boreholes) — DWDA_EXPLORATORY_NEEDED")
+        return ok1 and ok2
+    if dwda_payload:
+        p = dwda_payload
+        blocks = [{"style": "heading3", "text": "Drilling Waste Disposal Area"},
+                  {"style": "body", "text": _dwda_requirement_clause(dwda_requirement, True)},
+                  {"style": "body", "text": _exploratory_sentence(exploratory_max_depth_m, exploratory_ids)}]
+        ch, de = p.get("characterization_boreholes") or [], p.get("delineation_boreholes") or []
+        if ch:
+            s = f"The SWMZ was identified and characterized in {len(ch)} borehole{'s' if len(ch) != 1 else ''} ({_format_borehole_id_range_list(ch)})"
+            if de:
+                s += f" and further delineated in {len(de)} borehole{'s' if len(de) != 1 else ''} ({_format_borehole_id_range_list(de)})"
+            blocks.append({"style": "body", "text": s + "."})
+        else:
+            blocks.append({"style": "body", "text": "The SWMZ was identified and characterized in [BOREHOLE(S) — PRACTITIONER TO CONFIRM]."})
+        blocks.append({"style": "body", "text": "Per the Phase 1 Compliance Options, each characterization sample was analyzed for the following:"})
+        panel = p.get("parameter_panel")
+        if panel:
+            blocks += [{"style": "body", "text": x} for x in panel]
+        else:
+            blocks.append({"style": "body", "text": "[PARAMETER PANEL — PRACTITIONER TO CONFIRM]"})
+        summary = _apec_summary_blocks(p, p.get("chloride_guideline_mg_l") or 100)
+        # waste-mix-zone identification bullet goes right after "Summary of Results"
+        for r in p.get("characterization_impact_depth_ranges") or []:
+            top, bot = r.get("top_of_impact_m"), r.get("bottom_of_impact_m")
+            rng = f"{_fmtn(top)} to {_fmtn(bot)} mbgs" if top is not None and bot is not None else "[DEPTH RANGE — PRACTITIONER TO CONFIRM] mbgs"
+            summary.insert(1, {"style": "bullet", "text": f"The soil waste mix zone was identified in {r['borehole_id']} ({rng})."})
+        blocks += summary
+        found_blocks, nil_blocks = blocks, []
+    else:
+        v = {"none": "A", "no_anomaly": "B", "anomaly": "C"}.get((em_survey or "none").lower(), "A")
+        req = _dwda_requirement_clause(dwda_requirement, False)
+        expl = _exploratory_sentence(exploratory_max_depth_m, exploratory_ids, v)
+        fig = "The DWDA search locations are shown in Figure [X]."
+        if v == "A":
+            body = [f"{req} {expl} No indications of soil disturbance, drilling waste, or contaminant impacts were identified in any of the exploratory boreholes. As such, samples were not collected or analyzed for this APEC assessment. It was concluded that a DWDA is not present or is of such low volume as to pose little to no environmental risk. {fig}"]
+        elif v == "B":
+            body = [f"{req} {expl} Additional consideration was given to the geophysical surveys ([SURVEY CITATION — PRACTITIONER TO CONFIRM]), which did not show a significant response indicative of a drilling waste disposal area (Appendix [X]).",
+                    f"No indications of soil disturbance, drilling waste, or contaminant impacts were identified in the exploratory boreholes. As such, samples were not collected or analyzed for this APEC assessment. It was concluded that a DWDA is either absent or of such low volume that it poses little to no environmental risk. {fig}"]
+        else:
+            body = [f"{req} {expl} Additional consideration was given to the geophysical surveys ([SURVEY CITATION — PRACTITIONER TO CONFIRM]), which did not indicate elevated conductivity representative of a drilling waste disposal area (Appendix [X]). In the [REGION — PRACTITIONER TO CONFIRM] region, drilling waste disposal areas are characterized by [SHALLOW IMPACTS NEAR THE WELLBORE — PRACTITIONER TO CONFIRM].",
+                    f"No indications of soil disturbance, drilling waste, or contaminant impacts were identified in any of the exploratory boreholes. As such, samples were not collected or analyzed for this APEC assessment. It was concluded that a DWDA is not present or is of such low volume as to pose little to no environmental risk. {fig}"]
+        nil_blocks = [{"style": "heading3", "text": "Drilling Waste Disposal Area – NIL FINDINGS"}] + [{"style": "body", "text": t} for t in body]
+        found_blocks = []
+    ok1 = op_replace_between(doc, {"start_placeholder": "<INSERT_42_DWDA_START>", "end_placeholder": "<INSERT_42_DWDA_END>", "blocks": found_blocks})
+    ok2 = op_replace_between(doc, {"start_placeholder": "<INSERT_42_DWDA_NIL_START>", "end_placeholder": "<INSERT_42_DWDA_NIL_END>", "blocks": nil_blocks})
+    print(f"  {'✓' if ok1 and ok2 else '✗'} generate_section4_2_dwda ({'sump found' if dwda_payload else 'NIL variant ' + v}; exploratory: {exploratory_ids or 'none'})")
+    return ok1 and ok2
+
 # ── Section 5 intro (Background Chloride) — pure Python ─────────────────────
 # Converted from the retired prompts/s5_intro.md: borehole lists and chloride
 # figures are lookups on the Excel workbook; the wording is fixed. Section 5
@@ -3307,6 +3587,138 @@ def compute_chloride_delineation_data(wb, site_facts):
 def _natural_key(sample_id):
     import re
     return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(sample_id))]
+
+
+# ── Facts for the authoring call (so no prompt ever has to open the workbook) ──
+def build_authoring_facts(wb, site_facts):
+    """Everything Claude's prose sections used to read straight from the Excel sheets, computed once
+    here and written to excel_data.json['authoring_facts']."""
+    import math
+    def rows(name):
+        if name not in wb.sheetnames:
+            return []
+        rr = list(wb[name].iter_rows(values_only=True))
+        if not rr:
+            return []
+        hdr = list(rr[0])
+        return [dict(zip(hdr, r)) for r in rr[1:] if any(v is not None for v in r)]
+    ecsar, t1, bc = rows("EC & SAR Rating Categories"), rows("Tier 1 Exceedances"), rows("Borehole_Characteristics")
+    apec = lambda r: r.get("APEC") if "APEC" in r else r.get("Comments")
+    num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    rng = lambda vals: ({"min": min(vals), "max": max(vals)} if vals else None)
+    order = {c: i for i, c in enumerate(_RATING_ORDER)}
+    facts = {}
+
+    # boreholes (Borehole_Characteristics + EC&SAR sample IDs; true count is the union with the logs)
+    bc_ids = [r["Location"] for r in bc if r.get("Location")]
+    ec_ids = sorted({r["Sample ID"] for r in ecsar if r.get("Sample ID")}, key=_natural_key)
+    log_ids = [b.get("borehole_id") for b in ((site_facts or {}).get("borehole_logs") or {}).get("boreholes", []) if b.get("borehole_id")]
+    union = sorted(set(bc_ids) | set(ec_ids) | set(log_ids), key=_natural_key)
+    deepest = [num(r.get("Deepest Sample mbgs")) for r in bc if num(r.get("Deepest Sample mbgs")) is not None]
+    # Decision 2026-10-02: the borehole count is what is in the borehole logs (same as the Section 4 intro).
+    # Workbook-only boreholes (lab data, no log) are listed separately for the practitioner hand-off.
+    log_depths = [b.get("total_depth_m") for b in ((site_facts or {}).get("borehole_logs") or {}).get("boreholes", []) if isinstance(b.get("total_depth_m"), (int, float))]
+    use_logs = bool(log_ids)
+    count_ids = sorted(set(log_ids), key=_natural_key) if use_logs else union
+    facts["boreholes"] = {"count": len(count_ids), "ids": count_ids,
+                          "max_depth_mbgs": (max(log_depths) if log_depths else (max(deepest) if deepest else None)),
+                          "workbook_only_ids_no_log": sorted(set(union) - set(log_ids), key=_natural_key) if use_logs else [],
+                          "source": "borehole logs" if use_logs else "workbook (no logs available)"}
+
+    # background evaluation (EC & SAR Rating Categories, APEC = Background)
+    bg = [r for r in ecsar if apec(r) == "Background"]
+    cats = lambda col: sorted({r[col] for r in bg if r.get(col)}, key=lambda c: order.get(c, 99))
+    facts["background"] = {
+        "n_boreholes": len({r["Sample ID"] for r in bg}), "n_samples": len(bg),
+        "ec_categories": cats("EC Category"), "sar_categories": cats("SAR Category"),
+        "chloride_mg_kg": rng([num(r.get("Chloride (mg/kg)")) for r in bg if num(r.get("Chloride (mg/kg)")) is not None]),
+        "chloride_mg_l": rng([num(r.get("Chloride (mg/L)")) for r in bg if num(r.get("Chloride (mg/L)")) is not None])}
+
+    # impact-area chloride (non-Background, non-Excluded, assigned APECs), threshold 100 mg/kg
+    imp = [r for r in ecsar if apec(r) not in (None, "", "-", "Background", "Excluded Background")]
+    hi = [r for r in imp if (num(r.get("Chloride (mg/kg)")) or 0) > 100]
+    facts["impact_chloride"] = {
+        "max_mg_kg": max([num(r["Chloride (mg/kg)"]) for r in imp if num(r.get("Chloride (mg/kg)")) is not None], default=None),
+        "elevated_depth_m": rng([num(r.get("Z")) for r in hi if num(r.get("Z")) is not None]),
+        "elevated_areas": sorted({apec(r) for r in hi})}
+
+    # background chloride exceedances (Tier 1 Exceedances: Background + Chloride); use the mg/kg and mg/L columns
+    bx = [r for r in t1 if r.get("APEC") == "Background" and r.get("Chemical Group") == "Chloride"]
+    bx_ids = sorted({r["Sample ID"] for r in bx}, key=_natural_key)
+    facts["background_chloride_exceedances"] = {
+        "present": bool(bx), "n_boreholes": len(bx_ids), "boreholes": bx_ids,
+        "chloride_mg_kg": rng([num(r.get("Chloride (mg/kg)")) for r in bx if num(r.get("Chloride (mg/kg)")) is not None]),
+        "max_chloride_mg_l": max([num(r.get("Chloride (mg/L)")) for r in bx if num(r.get("Chloride (mg/L)")) is not None], default=None),
+        "depth_m": rng([num(r.get("Depth (m)")) for r in bx if num(r.get("Depth (m)")) is not None])}
+
+    # compass direction of each exceeding background borehole from the impact-area centroid
+    coords = {b.get("borehole_id"): (b.get("easting"), b.get("northing")) for b in ((site_facts or {}).get("borehole_logs") or {}).get("boreholes", [])}
+    imp_ids = sorted({r["Sample ID"] for r in imp if r.get("Sample ID")})
+    pts = [coords[i] for i in imp_ids if i in coords and all(isinstance(v, (int, float)) for v in coords[i])]
+    dirs, missing = {}, []
+    if pts:
+        ce, cn = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+        for i in bx_ids:
+            c = coords.get(i)
+            if c and all(isinstance(v, (int, float)) for v in c):
+                dirs[i] = _bearing_to_compass((math.degrees(math.atan2(c[0] - ce, c[1] - cn)) + 360) % 360)
+            else:
+                missing.append(i)
+    else:
+        missing = list(bx_ids)
+    facts["background_chloride_exceedances"]["directions_from_impact_centroid"] = dirs
+    facts["background_chloride_exceedances"]["directions_unavailable_no_coordinates"] = missing
+
+    # per-APEC exceedance groups and justification status (Tier 1 Exceedances)
+    per = {}
+    for r in t1:
+        a = r.get("APEC")
+        if a in (None, "", "-", "Background", "Excluded Background"):
+            continue
+        e = per.setdefault(a, {"chemical_groups": set(), "justified_yes": 0, "justified_no": 0, "justification_reasons": set()})
+        e["chemical_groups"].add(r.get("Chemical Group"))
+        if str(r.get("Justified (Yes/No)")).strip().lower() == "yes":
+            e["justified_yes"] += 1
+            if r.get("Justification Reason") not in (None, "", "-"):
+                e["justification_reasons"].add(r["Justification Reason"])
+        else:
+            e["justified_no"] += 1
+    facts["per_apec_exceedances"] = {a: {**e, "chemical_groups": sorted(g for g in e["chemical_groups"] if g),
+                                          "justification_reasons": sorted(e["justification_reasons"])} for a, e in per.items()}
+
+    # ── Added after the prompt audit ────────────────────────────────────────
+    # (a) Borehole Rationale rows: which boreholes belong to which workbook area label + analyzed panel
+    try:
+        pb = _borehole_rationale_by_apec(wb)
+    except Exception:
+        pb = {}
+    facts["areas"] = [{"area_label": k, "boreholes": v.get("boreholes", []),
+                       "salinity": v.get("salinity"), "metals": v.get("metals"), "phc": v.get("phc"), "pah": v.get("pah"), "other": v.get("other")}
+                      for k, v in pb.items()]
+    # (b) Unassigned boreholes (no APEC in EC & SAR Rating Categories): max chloride and its depth
+    un = {}
+    for r in ecsar:
+        if apec(r) in (None, "", "-") and r.get("Sample ID"):
+            u = un.setdefault(r["Sample ID"], {"max_chloride_mg_l": None, "max_chloride_mg_kg": None, "depth_of_max_chloride_m": None})
+            cl = num(r.get("Chloride (mg/L)"))
+            if cl is not None and (u["max_chloride_mg_l"] is None or cl > u["max_chloride_mg_l"]):
+                u["max_chloride_mg_l"], u["max_chloride_mg_kg"], u["depth_of_max_chloride_m"] = cl, num(r.get("Chloride (mg/kg)")), num(r.get("Z"))
+    facts["unassigned_boreholes"] = dict(sorted(un.items(), key=lambda kv: _natural_key(kv[0])))
+    # (c) Exceeding background boreholes: their own vertical closure, from Borehole_Characteristics
+    bcd = {r.get("Location"): r for r in bc if r.get("Location")}
+    det = {}
+    for i in facts["background_chloride_exceedances"]["boreholes"]:
+        r = bcd.get(i) or {}
+        det[i] = {"max_chloride_mg_l": num(r.get("Max Cl mg/L")), "depth_of_max_chloride_mbgs": num(r.get("Max Cl depth mbgs")),
+                  "deepest_chloride_mg_l": num(r.get("Deepest Cl mbgs")), "deepest_sample_mbgs": num(r.get("Deepest Sample mbgs")),
+                  "shallow_vertical_closure": r.get("Shallow Vertical Closure"), "deep_vertical_closure": r.get("Deep Vertical Closure")}
+    facts["background_chloride_exceedances"]["per_borehole_detail"] = det
+    # (d) Distance (m) of each exceeding background borehole from the impact-area centroid
+    if pts:
+        facts["background_chloride_exceedances"]["distance_from_impact_centroid_m"] = {
+            i: round(math.hypot(coords[i][0] - ce, coords[i][1] - cn)) for i in bx_ids
+            if i in coords and all(isinstance(v, (int, float)) for v in coords[i])}
+    return facts
 
 
 def _section5_data(wb):
@@ -3522,6 +3934,38 @@ def build_section1_opening_sentence(site_facts, site_lsd, client_name, reference
     return f"{client_name} ({short}) retained EBM Geoscience Inc. (EBM) {tail}"
 
 
+# ── Section 1.2.1 Previous Environmental Assessments — pure Python ──────────
+# Converted from the retired prompts/s1_2_1_previous_assessments.md. The Summary cell is the
+# cached `findings_summary` from site_facts.json (written once by the extraction step), verbatim.
+
+def generate_section1_2_1(doc, site_facts, client_name, references_folder):
+    from apply_operations import (op_replace_table_rows, op_delete_table, op_delete_paragraph, op_strip_markers)
+    import re as _re
+    sf = site_facts or {}
+    p1 = sf.get("phase1_esa") or {}
+    entries = []  # (year_str, summary)
+    if p1.get("provided"):
+        m = _re.search(r"(\d{4})\s*$", str(p1.get("phase1_completed_date") or ""))
+        entries.append((m.group(1) if m else "[YEAR]", (p1.get("findings_summary") or "").strip() or "[PHASE 1 ESA SUMMARY — PRACTITIONER TO COMPLETE]"))
+    for o in sf.get("other_previous_assessments") or []:
+        yr = str(o.get("year") or "").strip()[:4] or "[YEAR]"
+        entries.append((yr, (o.get("findings_summary") or "").strip() or "[SUMMARY — PRACTITIONER TO COMPLETE]"))
+    entries.sort(key=lambda e: (not e[0].isdigit(), e[0]))  # oldest first, stable
+    short, _ = _client_info(references_folder, client_name)
+    short = short or (client_name or "[CLIENT]")
+    S, E = "<INSERT_121_START>", "<INSERT_121_END>"
+    if entries:
+        rows = [[{"lines": [{"text": y, "bold": True}, {"text": f"({short}, {y})", "bold": False}]}, t] for y, t in entries]
+        ok = op_replace_table_rows(doc, {"table_anchor": "<INSERT_121_TABLE>", "header_rows": 0, "rows": rows})
+        op_delete_paragraph(doc, {"text": "The Phase 1 ESA was unavailable for review", "exact": False, "after": S, "before": E})
+    else:
+        ok = op_delete_table(doc, {"placeholder": "<INSERT_121_TABLE>"})
+    op_delete_paragraph(doc, {"text": "OR", "after": S, "before": E})
+    op_strip_markers(doc, {"start_placeholder": S, "end_placeholder": E})
+    print(f"  {'✓' if ok else '✗'} generate_section1_2_1: {len(entries)} previous assessment(s) — {'table' if entries else 'no-previous-assessments sentence'}")
+    return ok
+
+
 def generate_section1(doc, site_facts, site_lsd, client_name, references_folder):
     """Fill <INSERT_1_START>/<INSERT_1_END>. Returns the opening sentence."""
     from apply_operations import op_replace_between
@@ -3560,7 +4004,7 @@ def generate_section1_1(doc, report_type="standard"):
     return ok
 
 
-def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, client_name=None, site_facts_path=None, figures_zip_path=None, report_type="standard"):
+def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, client_name=None, site_facts_path=None, figures_zip_path=None, report_type="standard", em_survey="none", exploratory_boreholes="", exploratory_max_depth_m=""):
     """
     Generate the EBM report.
 
@@ -3686,7 +4130,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     # DWDA (Drilling Waste Disposal Area) gets its own dedicated marker
     # (<INSERT_42_DWDA_START>/_END) and needs extra fields (AER 2014
     # required-sample-count from wellbore depth) the generic per-APEC
-    # section doesn't — see prompts/s4_2_dwda.md. In real workbooks the
+    # section doesn't — see generate_section4_2_dwda(). In real workbooks the
     # DWDA characterization and delineation samples are themselves tagged
     # with two DIFFERENT APEC values in the data sheets ("DWDA-Char" /
     # "DWDA-Delineation", not a plain "DWDA") — confirmed against an actual
@@ -3742,7 +4186,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     print("=" * 70)
 
 
-    # ── DWDA payload (Section 4.2's DWDA subsection, prompts/s4_2_dwda.md) ──
+    # ── DWDA payload (Section 4.2's DWDA subsection, generate_section4_2_dwda()) ──
     # DWDA's Borehole Rationale rows are split into "DWDA-Char"/"DWDA-Delin"
     # (characterization vs. delineation boreholes) rather than one plain
     # "DWDA" row like every other APEC, so _build_apec_payload_entry()'s own
@@ -3752,7 +4196,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     # wellbore_depth_m/required_sample_count are computed unconditionally
     # (not just when a DWDA sump was actually found) because the AER
     # (2014) requirement sentence is shared verbatim by BOTH
-    # prompts/s4_2_dwda.md (sump found) and prompts/s4_2_dwda_nil.md (no
+    # generate_section4_2_dwda() (sump found) and generate_section4_2_dwda() (no
     # sump found, exploratory boreholes only) — see DWDA_REQUIREMENT_DATA_FOR_CLAUDE
     # below, printed regardless of which of the two applies.
     wellbore_depth_m = _parse_wellbore_depth_m((site_facts or {}).get("abadata", {}).get("wellbore_depth"))
@@ -3770,7 +4214,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
         dwda_payload["delineation_boreholes"] = dwda_bh["delineation_boreholes"]
 
         # Waste-mix-zone impact depth range for the characterization
-        # borehole(s) — see prompts/s4_2_dwda.md step 8. Only handles a
+        # borehole(s) — see generate_section4_2_dwda() step 8. Only handles a
         # single characterization borehole cleanly (the common case); if
         # there's more than one, report each one's own range rather than
         # guessing how to combine them.
@@ -3780,6 +4224,11 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
             impact_ranges.append({"borehole_id": bh_id, "top_of_impact_m": top, "bottom_of_impact_m": bottom})
         dwda_payload["characterization_impact_depth_ranges"] = impact_ranges
 
+        # A NIL site (only a "DWDA Search" row, no DWDA-Char/Delin boreholes) has no DWDA:
+        # drop the payload so Section 2.3's APEC list and 7.1 don't treat it as a found APEC.
+        if not (dwda_bh["characterization_boreholes"] or dwda_bh["delineation_boreholes"]):
+            dwda_payload = None
+
     print("\n" + "=" * 70)
     print("DWDA_DATA_FOR_CLAUDE")
     print("=" * 70)
@@ -3787,8 +4236,8 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     print("=" * 70)
 
 
-    # ── DWDA requirement payload (shared by prompts/s4_2_dwda.md and
-    # prompts/s4_2_dwda_nil.md's requirement sentence — see comment above) ──
+    # ── DWDA requirement payload (shared by generate_section4_2_dwda() and
+    # generate_section4_2_dwda()'s requirement sentence — see comment above) ──
     dwda_requirement_payload = {
         "wellbore_depth_m": wellbore_depth_m,
         "required_sample_count": required_sample_count,
@@ -3829,8 +4278,14 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
             "chloride_delineation_data": chloride_delineation_payload,
             "section1_opening_sentence": build_section1_opening_sentence(site_facts, site_lsd, client_name, onedrive_folder),
             "section5_data": _section5_data(wb),
+            "section5_present": _section5_has_bg_chloride(wb),
+            "authoring_facts": build_authoring_facts(wb, site_facts),
         }, _f, indent=2)
     print(f"\n✓ Wrote consolidated Excel data for Claude: {excel_data_path}")
+    if _section5_has_bg_chloride(wb):
+        print("SECTION5_PRESENT: yes — author 5.1, 5.2 and 5.3")
+    else:
+        print("SECTION5_PRESENT: no — no Background chloride > 100 mg/L. Section 5 is removed by the generator. DO NOT read or run s5_1_phase1.md, s5_2_transport.md or s5_3_footprint.md, and author no operations for the 5.x markers.")
 
 
     # ── Load and edit template using python-docx
@@ -3855,6 +4310,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     # ── Sections 1 and 1.1 (pure Python)
     print(f"\n✓ Filling Sections 1 and 1.1...")
     generate_section1(doc, site_facts, site_lsd, client_name, onedrive_folder)
+    generate_section1_2_1(doc, site_facts, client_name, onedrive_folder)
     generate_section1_1(doc, report_type)
 
     # ── Fill Section 2.1 (pure Python — see the deleted prompts/s2_1_facility.md;
@@ -3874,6 +4330,25 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
         generate_section2_3(doc, site_facts, apec_payload, dwda_payload)
     else:
         print("  ✗ No site_facts.json path given/found — Section 2.3 left as template placeholders")
+
+    # ── Section 4.2 DWDA / DWDA NIL (pure Python)
+    # Exploratory boreholes carry no analytical data, so they cannot be read from the workbook: they are a run setting.
+    # Exploratory boreholes: the "DWDA Search" row in Borehole Rationale if present, otherwise the
+    # intake-quiz run setting (arg 10). Max depth always from the intake quiz (arg 11).
+    _expl = []
+    for _k, _v in panel_by_apec.items():
+        if re.sub(r"[\s_-]+", " ", str(_k).strip().lower()) == "dwda search":
+            _expl = list(_v.get("boreholes") or [])
+    _expl_src = "Borehole Rationale 'DWDA Search' row" if _expl else "intake quiz run setting"
+    if not _expl:
+        _expl = [x.strip() for x in str(exploratory_boreholes or "").split(",") if x.strip()]
+    try:
+        _expl_depth = float(str(exploratory_max_depth_m).strip()) if str(exploratory_max_depth_m).strip() else None
+    except ValueError:
+        _expl_depth = None
+    if _expl:
+        print(f"  DWDA exploratory boreholes ({_expl_src}): {_expl}; max depth {'given' if _expl_depth is not None else 'NOT GIVEN (DWDA_DEPTH_NEEDED)'}")
+    generate_section4_2_dwda(doc, site_facts, dwda_payload, dwda_requirement_payload, _expl, em_survey, _expl_depth)
 
     # ── Fill Section 2.4 (pure Python — see generate_section2_4()'s docstring;
     # converted from the retired prompts/s2_3_2_regional.md)
@@ -3908,10 +4383,9 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     print(f"\n✓ Filling Section 2.8 Exposure Pathway Evaluation...")
     generate_section2_8(doc, site_summary_payload)
 
-    # <INSERT_42_APECS_START>/_END is left in place here — Claude authors
-    # the Section 4.2 (non-background APEC) narrative from the
-    # EC_SAR_DATA_FOR_CLAUDE JSON printed below, per prompts/s4_2_2_apecs.md,
-    # and applies it as a replace_between operation in a later step.
+    # ── Section 4.2.2+ per-APEC subsections (pure Python — see generate_section4_2_apecs)
+    print(f"\n✓ Filling Section 4.2.2+ per-APEC subsections...")
+    generate_section4_2_apecs(doc, site_facts, apec_payload)
 
     # ── Fill Section 3.2 SCARG intro + guideline table (pure Python — see
     # prompts/s3_2_scarg.md; fixed-sentence if/else plus direct Excel-to-table
@@ -4007,6 +4481,19 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_docx = os.path.join(output_folder, f"EBM_Report_{timestamp}.docx")
     remove_section5_if_no_bg_chloride(doc, wb)
+    try:
+        _ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        _caps = []
+        for _p in doc.element.body.iter(_ns + "p"):
+            _st = _p.find(f"{_ns}pPr/{_ns}pStyle")
+            if _st is not None and _st.get(_ns + "val") == "FigureTitle":
+                _caps.append("".join(t.text or "" for t in _p.iter(_ns + "t")).strip())
+        import json as _jj
+        _ed = _jj.load(open(excel_data_path, encoding="utf-8"))
+        _ed["figures_in_document"] = _caps
+        _jj.dump(_ed, open(excel_data_path, "w", encoding="utf-8"), indent=2)
+    except Exception as _e:
+        print(f"  ⚠ could not record figure captions in excel_data.json: {_e}")
     doc.save(output_docx)
 
     print(f"\n" + "=" * 70)
@@ -4019,7 +4506,7 @@ def main(onedrive_folder, excel_file_path, output_folder=None, site_lsd=None, cl
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python generate_ebm_report.py <references_folder> <excel_file> [output_folder] [site_lsd] [client_name] [site_facts_json] [figures_zip_file] [report_type: standard|presence_absence]")
+        print("Usage: python generate_ebm_report.py <references_folder> <excel_file> [output_folder] [site_lsd] [client_name] [site_facts_json] [figures_zip_file] [report_type: standard|presence_absence] [em_survey: none|no_anomaly|anomaly] [exploratory_boreholes: e.g. BH26-25 or BH26-01,BH26-02 (ignored if Borehole Rationale has a DWDA Search row)] [exploratory_max_depth_m: e.g. 6.0]")
         print("  site_lsd and client_name are read from the ABAData Word doc (Surface")
         print("  Location, Licensee) — pass them in per run rather than relying")
         print("  on a hardcoded default; omitted values fall back to placeholder text")
@@ -4040,6 +4527,9 @@ if __name__ == "__main__":
     site_facts_path = sys.argv[6] if len(sys.argv) > 6 else None
     figures_zip_path = sys.argv[7] if len(sys.argv) > 7 else None
     report_type = sys.argv[8] if len(sys.argv) > 8 else "standard"
+    em_survey = sys.argv[9] if len(sys.argv) > 9 else "none"
+    exploratory_boreholes = sys.argv[10] if len(sys.argv) > 10 else ""
+    exploratory_max_depth_m = sys.argv[11] if len(sys.argv) > 11 else ""
 
-    success = main(onedrive_folder, excel_file, output_folder, site_lsd=site_lsd, client_name=client_name, site_facts_path=site_facts_path, figures_zip_path=figures_zip_path, report_type=report_type)
+    success = main(onedrive_folder, excel_file, output_folder, site_lsd=site_lsd, client_name=client_name, site_facts_path=site_facts_path, figures_zip_path=figures_zip_path, report_type=report_type, em_survey=em_survey, exploratory_boreholes=exploratory_boreholes, exploratory_max_depth_m=exploratory_max_depth_m)
     sys.exit(0 if success else 1)

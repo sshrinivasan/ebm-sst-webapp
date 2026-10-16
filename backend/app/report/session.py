@@ -71,6 +71,9 @@ class ReportSession:
     extraction_flags: list[dict[str, Any]] = field(default_factory=list)
     excel_data: dict[str, Any] = field(default_factory=dict)
     intake_answers: dict[str, Any] = field(default_factory=dict)
+    # Step 3 one-call authoring output (authored.json): blocks per section key
+    # + practitioner_information. assemble_operations.py turns it into operations.
+    authored: dict[str, Any] = field(default_factory=dict)
     operations: list[dict[str, Any]] = field(default_factory=list)
     practitioner_info: dict[str, Any] = field(default_factory=dict)
     messages: list[dict[str, Any]] = field(default_factory=list)
@@ -127,6 +130,13 @@ class ReportSession:
         )
         self.excel_data = data
         self.excel_data_path = str(path)
+        return path
+
+    def save_authored(self) -> Path:
+        path = self.dir / "authored.json"
+        path.write_text(
+            json.dumps(self.authored, indent=2, default=str), encoding="utf-8"
+        )
         return path
 
     def save_operations(self) -> Path:

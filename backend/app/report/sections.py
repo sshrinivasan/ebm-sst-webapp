@@ -1,42 +1,69 @@
-"""Step 3 — per-section LLM authoring.
+"""Step 3 — one-call authoring (authored.json).
 
-Iterates the Step 3 section table (SKILL.md), one API call per prompt file:
-system = the section's prompt file (a Claude-authoring guide), user = the
-relevant context (site_facts.json + excel_data.json + intake answers), and
-the response is a single operation object (``replace_between`` for every
-Claude-authored section). Operations are collected into the session's
-``operations`` list and persisted to ``operations.json``.
+All Claude-written report content is authored in **one** LLM call following
+``prompts/one_call_authoring.md``. The response is ``authored.json``: a list
+of blocks per section key (``exec_summary``, ``s4_3_chloride``,
+``s5_1_phase1``, ``s5_2_transport``, ``s5_3_footprint``, ``s8_summary``)
+plus a ``practitioner_information`` object. ``scripts/assemble_operations.py``
+turns it into the operations JSON (Step 3 → 4), so this module never writes
+operations or marker names itself.
 
-Sections whose content is fully Python-authored (2.x, 3.2, 5.3 figures,
-5.4, 7.1, 7.2) are not in this table — the generator handles them.
+Sections whose content is fully Python-authored (1, 1.1, 1.2.1, 2.x, 3.2,
+4.1, 4.2, 4.2.1, 5 intro, 5.3 figures, 5.4, 7.1, 7.2, Appendix E) are not
+authored here — the generator handles them.
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
-from .llm import LLMClient, model_for
+from .llm import LLMClient, LLMError, model_for
 from .session import ReportSession
 
 _SKILL_ROOT = Path(__file__).resolve().parents[2] / "report_skill"
 _PROMPTS = _SKILL_ROOT / "prompts"
 
-# (section, prompt file, start marker, end marker) — from SKILL.md Step 3.
-SECTION_PROMPTS: list[tuple[str, str, str, str]] = [
-    # Sections 1, 1.1, and 5 intro are Python-authored by the generator
-    # (generate_section1 / generate_section1_1 / generate_section5_intro).
-    ("1.2.1 Previous Assessments", "s1_2_1_previous_assessments.md", "<INSERT_121_START>", "<INSERT_121_END>"),
-    ("Executive Summary", "exec_summary.md", "<INSERT_EXEC_SUMMARY_START>", "<INSERT_EXEC_SUMMARY_END>"),
-    ("4.2 DWDA", "s4_2_dwda.md", "<INSERT_42_DWDA_START>", "<INSERT_42_DWDA_END>"),
-    ("4.2 DWDA-NIL", "s4_2_dwda_nil.md", "<INSERT_42_DWDA_NIL_START>", "<INSERT_42_DWDA_NIL_END>"),
-    ("4.2.2 APECs", "s4_2_2_apecs.md", "<INSERT_42_APECS_START>", "<INSERT_42_APECS_END>"),
-    ("4.3 Chloride Delineation", "s4_3_chloride.md", "<INSERT_43_START>", "<INSERT_43_END>"),
-    ("5.1 Phase 1 ESA Review", "s5_1_phase1.md", "<INSERT_5_1_START>", "<INSERT_5_1_END>"),
-    ("5.2 Contaminant Transport", "s5_2_transport.md", "<INSERT_5_2_START>", "<INSERT_5_2_END>"),
-    ("5.3 Chemistry Footprint", "s5_3_footprint.md", "<INSERT_5_3_START>", "<INSERT_5_3_END>"),
-    ("8 Summary and Conclusions", "s8_summary.md", "<INSERT_8_START>", "<INSERT_8_END>"),
+# (authored.json key, prompt file) — the Claude-authored content keys, in the
+# order one_call_authoring.md lists them. Everything else is Python-authored.
+AUTHORED_KEYS: list[tuple[str, str]] = [
+    ("exec_summary", "exec_summary.md"),
+    ("s4_3_chloride", "s4_3_chloride.md"),
+    ("s5_1_phase1", "s5_1_phase1.md"),
+    ("s5_2_transport", "s5_2_transport.md"),
+    ("s5_3_footprint", "s5_3_footprint.md"),
+    ("s8_summary", "s8_summary.md"),
 ]
+
+MASTER_PROMPT = "one_call_authoring.md"
+PRACTITIONER_PROMPT = "practitioner_information.md"
+
+# Keys that must be null when Section 5 is absent (section5_present false).
+SECTION5_KEYS = {"s5_1_phase1", "s5_2_transport", "s5_3_footprint"}
+
+# Default max output tokens for the single consolidated authoring call.
+# Claude models cap at 64k output tokens; DeepSeek caps much lower (8k).
+# Override with the REPORT_MAX_TOKENS env var.
+DEFAULT_AUTHOR_MAX_TOKENS = 64_000
+DEEPSEEK_MAX_TOKENS = 8_000
+
+
+def _author_max_tokens() -> int:
+    """Resolve the authoring max_tokens, capped to the model's output limit.
+
+    ``REPORT_MAX_TOKENS`` wins when set; otherwise DeepSeek models are capped
+    at 8k (their provider limit) and everything else defaults to 64k.
+    """
+    env = os.environ.get("REPORT_MAX_TOKENS")
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    if "deepseek" in model_for("author").lower():
+        return DEEPSEEK_MAX_TOKENS
+    return DEFAULT_AUTHOR_MAX_TOKENS
 
 
 def _prompt_text(prompt_file: str) -> str:
@@ -56,18 +83,75 @@ def _context_payload(session: ReportSession) -> str:
     return json.dumps(payload, indent=2, default=str)
 
 
-def _user_prompt(section: str, context: str) -> str:
+def _system_prompt() -> str:
+    """Build the one-call system prompt.
+
+    The master guide (``one_call_authoring.md``) defines the authored.json
+    contract and the Section 5 gate; each per-key prompt file supplies the
+    wording rules for its key. The model cannot read files, so they are all
+    concatenated here.
+    """
+    parts = [
+        _prompt_text(MASTER_PROMPT),
+        "",
+        "Below are the per-key wording rules. Use them as written, but return "
+        "blocks only — ignore every operation/marker instruction in them.",
+        "",
+    ]
+    for key, prompt_file in AUTHORED_KEYS:
+        parts.append(f"# KEY: {key} — rules in {prompt_file}")
+        parts.append(_prompt_text(prompt_file))
+        parts.append("")
+    parts.append(f"# KEY: practitioner_information — rules in {PRACTITIONER_PROMPT}")
+    parts.append(_prompt_text(PRACTITIONER_PROMPT))
+    return "\n".join(parts)
+
+
+def _user_prompt(context: str, section5_present: bool) -> str:
+    if section5_present:
+        s5_rule = (
+            "Author s5_1_phase1, s5_2_transport and s5_3_footprint. "
+            "s5_1_phase1 is null when no Phase 1 ESA was provided "
+            "(phase1_esa.provided is false)."
+        )
+    else:
+        s5_rule = (
+            "Set s5_1_phase1, s5_2_transport and s5_3_footprint to null, do "
+            "not read those three prompt files, and write no reference to "
+            "Section 5 anywhere (the generator has already removed it)."
+        )
     return (
-        f"Author the content for section '{section}' following the system "
-        "prompt (the section's authoring guide) exactly.\n\n"
-        "Return a single JSON object: the operation object for this section, "
-        "with the exact shape the guide specifies (typically "
-        '{"op": "replace_between", "start_text": ..., "end_text": ..., '
-        '"blocks": [...]}). Do not return an array — one operation object '
-        "only. Do not include any text outside the JSON.\n\n"
+        "Author all Claude-written report content in a single pass, following "
+        "the master guide and the per-key rules in the system prompt exactly.\n\n"
+        f"Section 5 gate: section5_present is {'true' if section5_present else 'false'}. "
+        f"{s5_rule}\n\n"
+        "Return a single JSON object matching the authored.json schema in the "
+        "master guide: exec_summary, s4_3_chloride, s5_1_phase1, s5_2_transport, "
+        "s5_3_footprint and s8_summary (each a list of blocks, or null where the "
+        "rules say so) plus practitioner_information (an object with site, report, "
+        "check, uncertain, not_found and incomplete). Do not include any text "
+        "outside the JSON.\n\n"
         "CONTEXT (site_facts.json, excel_data.json, intake answers):\n\n"
         f"{context}"
     )
+
+
+def _normalize_authored(result: Any, section5_present: bool) -> dict[str, Any]:
+    """Validate the one-call response and enforce the Section 5 gate.
+
+    The response must be a JSON object (authored.json). When Section 5 is
+    absent, the s5_* keys are forced to null regardless of what the model
+    returned (assemble_operations.py rejects a non-null Section 5 key).
+    """
+    if not isinstance(result, dict):
+        raise LLMError(
+            "Section authoring returned an unexpected shape: expected a JSON "
+            f"object (authored.json), got {type(result).__name__}."
+        )
+    if not section5_present:
+        for key in SECTION5_KEYS:
+            result[key] = None
+    return result
 
 
 def author_sections(
@@ -75,44 +159,29 @@ def author_sections(
     llm: LLMClient,
     *,
     model: str | None = None,
+    max_tokens: int | None = None,
     progress: Any = None,
-) -> list[dict[str, Any]]:
-    """Author every Step 3 section; returns the collected operations list.
+) -> dict[str, Any]:
+    """Author all Claude-written content in a single LLM call.
 
-    ``progress`` is an optional callable ``(stage_message: str) -> None``
-    used by the background job to report per-section progress.
+    Returns the ``authored.json`` dict (blocks per section key +
+    ``practitioner_information``) and persists it to ``authored.json`` in the
+    session dir. ``progress`` is an optional callable
+    ``(stage_message: str) -> None`` used by the background job to report the
+    (single) authoring stage.
     """
     context = _context_payload(session)
-    operations: list[dict[str, Any]] = []
+    section5_present = bool((session.excel_data or {}).get("section5_present"))
+    if progress:
+        progress("Authoring all report sections (single LLM call)…")
+    result = llm.complete_json(
+        _system_prompt(),
+        _user_prompt(context, section5_present),
+        model=model or model_for("author"),
+        max_tokens=max_tokens or _author_max_tokens(),
+    )
+    authored = _normalize_authored(result, section5_present)
 
-    for section, prompt_file, start_marker, end_marker in SECTION_PROMPTS:
-        if progress:
-            progress(f"Authoring {section}…")
-        system = _prompt_text(prompt_file)
-        user = _user_prompt(section, context)
-        result = llm.complete_json(
-            system,
-            user,
-            model=model or model_for("author"),
-            max_tokens=32_000,
-        )
-        # Some guides return a single operation object, others an array (e.g.
-        # s1_2_1 returns replace_table_rows + replace_between). Normalise both.
-        items = result if isinstance(result, list) else [result]
-        for op in items:
-            if not isinstance(op, dict):
-                continue
-            op.setdefault("op", "replace_between")
-            # Only replace_between needs the section markers; the model
-            # occasionally returns empty strings, so fill them with the known
-            # markers to ensure the section actually gets filled.
-            if op["op"] == "replace_between":
-                if not op.get("start_text"):
-                    op["start_text"] = start_marker
-                if not op.get("end_text"):
-                    op["end_text"] = end_marker
-            operations.append(op)
-
-    session.operations = operations
-    session.save_operations()
-    return operations
+    session.authored = authored
+    session.save_authored()
+    return authored

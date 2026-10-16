@@ -115,3 +115,136 @@ def test_system_prompt_filters_by_category():
     # Schema still kept.
     assert "## Schema" in esa_only
     assert len(esa_only) < len(full)
+
+
+# ---------------------------------------------------------------------------
+# Cached site facts (download / upload)
+# ---------------------------------------------------------------------------
+
+
+def test_source_files_lists_extract_categories(tmp_path: Path):
+    from app.report.extract import source_files
+
+    s = ReportSession(id="t", dir=tmp_path / "s")
+    s.dir.mkdir(parents=True, exist_ok=True)
+    for cat, name in [("abadata", "Abadata.docx"), ("phaseview", "Phaseview.pdf"), ("excel", "table.xlsm")]:
+        p = s.dir / cat / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+        s.add_file(cat, name, p)
+    files = source_files(s)
+    # Only extract categories are listed (excel is not a source document).
+    assert files == [
+        {"category": "abadata", "name": "Abadata.docx"},
+        {"category": "phaseview", "name": "Phaseview.pdf"},
+    ]
+
+
+def test_load_cached_facts_sets_and_persists(tmp_path: Path):
+    from app.report.extract import load_cached_facts
+
+    s = ReportSession(id="t", dir=tmp_path / "s")
+    s.dir.mkdir(parents=True, exist_ok=True)
+    load_cached_facts(
+        s,
+        {"client_name": "ACME", "site_lsd": "08-13-016-01 W4"},
+        [{"message": "flag", "field": "x"}],
+    )
+    assert s.site_facts["client_name"] == "ACME"
+    assert s.extraction_flags == [{"message": "flag", "field": "x"}]
+    assert (s.dir / "site_facts.json").exists()
+
+
+def test_facts_endpoints_round_trip(tmp_path: Path):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.report.session import store
+
+    store.clear()
+    session = store.create()
+    doc = session.dir / "abadata" / "Abadata.docx"
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text("x", encoding="utf-8")
+    session.add_file("abadata", "Abadata.docx", doc)
+
+    client = TestClient(app)
+
+    # Download before any facts exist -> 404.
+    r = client.get(f"/api/report/facts/{session.id}")
+    assert r.status_code == 404
+
+    # Load cached facts -> state becomes facts_review.
+    r = client.post(
+        f"/api/report/facts/load?session_id={session.id}",
+        json={
+            "site_facts": {"client_name": "ACME", "site_lsd": "08-13-016-01 W4"},
+            "extraction_flags": [{"message": "flag", "field": "x"}],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["state"] == "facts_review"
+    assert body["site_facts"]["client_name"] == "ACME"
+
+    # Download now returns the wrapped JSON with source_files.
+    r = client.get(f"/api/report/facts/{session.id}")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["site_facts"]["client_name"] == "ACME"
+    assert payload["source_files"] == [{"category": "abadata", "name": "Abadata.docx"}]
+
+    # Inspect a cached file -> returns client + LSD + source_files, no mutation.
+    cached = {
+        "site_facts": {"client_name": "ACME", "site_lsd": "08-13-016-01 W4"},
+        "extraction_flags": [],
+        "source_files": [{"category": "abadata", "name": "Abadata.docx"}],
+    }
+    r = client.post(
+        f"/api/report/facts/inspect?session_id={session.id}",
+        files={"file": ("site_facts.json", json.dumps(cached), "application/json")},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["client_name"] == "ACME"
+    assert body["site_lsd"] == "08-13-016-01 W4"
+    assert body["source_files"] == [{"category": "abadata", "name": "Abadata.docx"}]
+
+    # Inspect rejects invalid JSON.
+    r = client.post(
+        f"/api/report/facts/inspect?session_id={session.id}",
+        files={"file": ("bad.json", "not json", "application/json")},
+    )
+    assert r.status_code == 400
+
+
+def test_confirm_extract_persists_edited_facts(tmp_path: Path):
+    """The curated review edits site_facts; /extract/confirm must persist them."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.report.session import store
+
+    store.clear()
+    session = store.create()
+    session.site_facts = {"client_name": "Old Client", "site_lsd": "08-13-016-01 W4"}
+    session.extraction_flags = [{"message": "flag", "field": "client_name"}]
+    session.save_site_facts()
+
+    client = TestClient(app)
+    r = client.post(
+        f"/api/report/extract/confirm?session_id={session.id}",
+        json={
+            "site_facts": {"client_name": "Corrected Client", "site_lsd": "08-13-016-01 W4"},
+            "extraction_flags": [],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["site_facts"]["client_name"] == "Corrected Client"
+    assert body["extraction_flags"] == []
+    # Persisted to disk too.
+    import json as _json
+
+    on_disk = _json.loads((session.dir / "site_facts.json").read_text(encoding="utf-8"))
+    assert on_disk["client_name"] == "Corrected Client"

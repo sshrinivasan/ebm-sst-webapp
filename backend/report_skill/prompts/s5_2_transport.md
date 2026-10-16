@@ -1,5 +1,12 @@
 # Section 5.2 — Contaminant Transport Mechanisms
 
+> **Data source override (workbook is never opened).** Every value this file says to read from an Excel sheet
+> (`Borehole_Characteristics`, `EC & SAR Rating Categories`, `Tier 1 Exceedances`) is already computed in
+> `excel_data.json` → `authoring_facts` (see the map in `prompts/one_call_authoring.md`). Use those values;
+> do not look for or ask for the workbook. If a value you need is missing there, write a bracketed
+> practitioner placeholder and list it under Practitioner Information.
+
+
 ## Placeholder
 
 `<INSERT_5_2_START>` / `<INSERT_5_2_END>` — Op type: `replace_between`.
@@ -47,16 +54,15 @@ the live analytical file, since that data changes every run.
 ## Step 1 — No mottling/gleying (Bullet 1)
 
 Read every borehole entry in `site_facts.json`'s `borehole_logs.boreholes[]`
-(covering both the 2023 and 2024 log sets, or whichever years were provided).
+(covering every log set provided).
 For each borehole, check:
 - `.mottling_gleying_text` — non-null means the source log mentioned
   "gleying" or "mottl" somewhere in its soil description
 - `.water_table_notes_text` — the "Notes" line text, if present (e.g. "No
   evidence of water table observed.")
-- `.has_notes_line: false` (2024-style logs may have no Notes line and no
+- `.has_notes_line: false` (some logs have no Notes line and no
   gleying/mottling mention at all) — treat the absence of any such flag as
-  "not observed", consistent with the 2023 logs' explicit "no gleying"
-  convention.
+  "not observed".
 
 Also pull the max investigation depth from `Borehole_Characteristics`
 (`Deepest Sample mbgs` column — no parentheses in the actual header, despite
@@ -92,8 +98,11 @@ whenever they differ, which they usually will.
 
 ## Step 2 — Impact area chloride (Bullet 2)
 
-From `EC & SAR Rating Categories`, filter rows where APEC is not "Background"
-and not None. Using the **`Chloride (mg/kg)` column**, find:
+From `EC & SAR Rating Categories`, filter rows where APEC is not "Background",
+not "Excluded Background" and not None. ("Excluded Background" boreholes are
+background locations that were left out of the background evaluation — they are
+neither impact area nor background here, so they must not be counted in either
+group.) Using the **`Chloride (mg/kg)` column**, find:
 - Maximum chloride value (mg/kg) across all impact rows
 - Depth range of elevated chloride (min to max Z where chloride exceeds
   100 mg/kg)
@@ -125,8 +134,9 @@ compute a real bearing instead of asking the user:
 1. Look up EASTING/NORTHING for every borehole from `borehole_logs.boreholes[]`
    (no PDF read needed — this was extracted once, in Step 1c).
 2. Compute a source/impact centroid: the mean easting and mean northing of
-   all *non-Background* boreholes (every borehole whose APEC/Ref — from this
-   run's Excel data, not the cached facts — is not "Background").
+   all impact-area boreholes (every borehole whose APEC/Ref — from this
+   run's Excel data, not the cached facts — is not "Background" and not
+   "Excluded Background").
 3. For each background borehole with a chloride exceedance, compute the
    bearing from the centroid to that borehole:
    `angle = atan2(easting - centroid_easting, northing - centroid_northing)`

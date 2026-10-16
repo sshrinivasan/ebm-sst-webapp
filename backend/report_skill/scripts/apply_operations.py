@@ -792,7 +792,7 @@ def op_replace_table_rows(doc, operation):
     A cell value can also be a dict {"lines": [{"text": "...", "bold": bool},
     ...]} instead of a plain string, to write more than one paragraph into
     that cell (e.g. a bold year on one line, a non-bold reference below it —
-    see prompts/s1_2_1_previous_assessments.md). Each entry becomes its own
+    see generate_section1_2_1() in generate_ebm_report.py). Each entry becomes its own
     paragraph, in order, cloning the cell's own template paragraph for
     formatting (alignment etc.) rather than only ever writing into the first
     paragraph the way the plain-string case does.

@@ -5,7 +5,7 @@
 `<INSERT_5_3_START>` / `<INSERT_5_3_END>` — Op type: `replace_between`.
 
 **This section only exists when background chloride exceedances are present** — same condition as
-`s5_intro.md`, `s5_1_phase1.md`, and `s5_2_transport.md`. If no Tier 1 exceedances with
+Section 5's intro (Python, `generate_section5_intro()`), `s5_1_phase1.md`, and `s5_2_transport.md`. If no Tier 1 exceedances with
 APEC = "Background" and Chemical Group = "Chloride" exist, skip this section entirely and emit
 no operation for it.
 

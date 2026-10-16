@@ -320,3 +320,200 @@
   .wz-step-line { width: 28px; margin: 0 10px; }
   .wz-confirm-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   Report wizard — intake questionnaire (matches the app theme)
+   ============================================================ */
+
+/* Each intake question is a soft card. */
+.iq-question {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.iq-question-title {
+  font-size: 14.5px; font-weight: 700; color: var(--ink);
+  margin-bottom: 4px; letter-spacing: -0.01em;
+}
+.iq-question-prompt {
+  font-size: 13px; color: var(--muted);
+  margin-bottom: 12px; line-height: 1.5;
+}
+
+/* Radio options as selectable rows. */
+.iq-options { display: flex; flex-direction: column; gap: 8px; }
+.iq-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border: 1px solid var(--line);
+  border-radius: 9px; cursor: pointer; font-size: 13.5px;
+  color: var(--ink-2); background: var(--card);
+  transition: all 0.15s ease;
+}
+.iq-option:hover { border-color: var(--accent); background: var(--accent-soft); }
+.iq-option.selected {
+  border-color: var(--accent); background: var(--accent-soft);
+  color: var(--accent-deep); font-weight: 600;
+}
+.iq-option input { accent-color: var(--accent); }
+
+/* Text / textarea inputs. */
+.iq-input {
+  width: 100%; background: var(--paper);
+  color: var(--ink); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px; font-size: 13.5px;
+  font-family: inherit;
+}
+.iq-input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- Intake dashboard (left section nav + input pane) ---------- */
+.iq-dashboard {
+  display: flex; gap: 20px; align-items: flex-start;
+}
+.iq-sidebar {
+  flex: 0 0 220px;
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  box-shadow: var(--shadow-sm);
+  position: sticky; top: 16px;
+}
+.iq-section {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: none; background: none;
+  border-radius: 8px; cursor: pointer; text-align: left;
+  font-size: 13.5px; font-weight: 600; color: var(--ink-2);
+  transition: all 0.15s ease; font-family: inherit;
+}
+.iq-section:hover { background: var(--accent-soft); color: var(--accent-deep); }
+.iq-section.active {
+  background: linear-gradient(160deg, var(--accent) 0%, var(--accent-deep) 100%);
+  color: #fff;
+}
+.iq-pane { flex: 1; min-width: 0; }
+
+/* Auto-derived / fixed-value rows (read-only). */
+.iq-auto {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 18px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.iq-auto-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 8px 0; font-size: 13.5px;
+  border-bottom: 1px solid var(--line-2);
+}
+.iq-auto-row:last-child { border-bottom: none; }
+.iq-auto-nested { padding-left: 18px; }
+.iq-auto-label { color: var(--muted); font-weight: 500; }
+.iq-auto-value { color: var(--ink); font-weight: 600; text-align: right; }
+
+@media (max-width: 860px) {
+  .iq-dashboard { flex-direction: column; }
+  .iq-sidebar { flex: none; width: 100%; position: static; }
+}
+
+/* ---------- Step 2 review dashboard (curated editable review) ---------- */
+.sf-dashboard {
+  display: flex; gap: 20px; align-items: flex-start;
+}
+.sf-sidebar {
+  flex: 0 0 200px;
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  box-shadow: var(--shadow-sm);
+  position: sticky; top: 16px;
+}
+.sf-section {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: none; background: none;
+  border-radius: 8px; cursor: pointer; text-align: left;
+  font-size: 13.5px; font-weight: 600; color: var(--ink-2);
+  transition: all 0.15s ease; font-family: inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sf-section:hover { background: var(--accent-soft); color: var(--accent-deep); }
+.sf-section.active {
+  background: linear-gradient(160deg, var(--accent) 0%, var(--accent-deep) 100%);
+  color: #fff;
+}
+.sf-pane { flex: 1; min-width: 0; }
+.sf-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.sf-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none;
+}
+.sf-card-title { font-size: 14.5px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+/* IcChevron is a right-pointing ">" by default; rotate 90deg so the
+   collapsed state points DOWN (expand affordance) and 270deg (up) when open —
+   same pattern as the webapp's .rv-inputs-chev. */
+.sf-chev {
+  width: 20px; height: 20px; color: var(--accent-deep);
+  transform: rotate(90deg); transition: transform 0.18s;
+  flex-shrink: 0;
+}
+.sf-chev.open { transform: rotate(270deg); }
+.sf-card-head:hover .sf-card-title { color: var(--accent-deep); }
+.sf-field { margin-bottom: 12px; }
+.sf-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.sf-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 5px 0; font-size: 13px; border-bottom: 1px solid var(--line-2);
+}
+.sf-row:last-child { border-bottom: none; }
+.sf-value { color: var(--ink); font-weight: 500; text-align: right; word-break: break-word; }
+
+/* Two-column choice: LLM extraction vs. cached JSON upload. */
+.sf-options { display: flex; gap: 16px; align-items: stretch; }
+.sf-option-card {
+  flex: 1; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 20px; box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column;
+}
+.sf-option-title { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 8px; letter-spacing: -0.01em; }
+.sf-option-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 0 0 14px; flex: 1; }
+.sf-or-v {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 0 4px;
+}
+
+/* Drop area for loading a cached site_facts.json (matches the Upload Files
+   dropzone look). */
+.sf-dropzone {
+  border: 2px dashed var(--line);
+  border-radius: 10px; padding: 24px; text-align: center; cursor: pointer;
+  color: var(--muted); font-size: 13.5px;
+  background: var(--paper);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.sf-dropzone:hover { background: var(--accent-soft); }
+.sf-dropzone-sub { font-size: 12px; margin-top: 6px; }
+
+@media (max-width: 860px) {
+  .sf-dashboard { flex-direction: column; }
+  .sf-sidebar { flex: none; width: 100%; position: static; }
+  .sf-options { flex-direction: column; }
+  .sf-or-v { padding: 8px 0; }
+}

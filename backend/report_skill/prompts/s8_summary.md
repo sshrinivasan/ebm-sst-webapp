@@ -73,8 +73,9 @@ Use the area names exactly as they appear elsewhere in the report. Non-chloride 
 State plainly when background chloride is the reason a direction failed, with a Section 5 reference.
 
 ## 6. Compliance statement
+(APEC names: use the workbook's APEC names exactly as written; never compare them with the Phase 1 ESA's APEC names or map them to other names.)
 - Phase 1 ESA provided: "All known APECs have been adequately characterized for the appropriate CoPCs. A comprehensive compliance review is provided in Section 7."
-- **But** if delineation is not fully achieved, or an APEC named in the Phase 1 ESA (e.g. "well centre") does not appear among the Excel APECs, do not assert "adequately characterized": write "All known APECs have been characterized for the appropriate CoPCs; however, {what is incomplete}. A comprehensive compliance review is provided in Section 7." and list the point in the Practitioner Information hand-off.
+- **But** if delineation is not fully achieved, do not assert "adequately characterized": write "All known APECs have been characterized for the appropriate CoPCs; however, {what is incomplete}. A comprehensive compliance review is provided in Section 7." and list the point in the Practitioner Information hand-off.
 - No Phase 1 ESA: the same sentence without the Phase 1 reference.
 
 ## 7. Concluding statements — one paragraph from the remedial-action value

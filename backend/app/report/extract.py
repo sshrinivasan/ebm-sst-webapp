@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .llm import LLMClient, assemble_document_payload, ingest_documents, model_for
-from .session import ReportSession
+from .session import EXTRACT_CATEGORIES, ReportSession
 
 # Path to the vendored extraction field list (system prompt).
 _SKILL_ROOT = Path(__file__).resolve().parents[2] / "report_skill"
@@ -105,6 +105,44 @@ def _user_prompt(payload: str) -> str:
     )
 
 
+def _reconcile_client_name(facts: dict[str, Any]) -> None:
+    """Force top-level ``client_name`` from the borehole-log CLIENT header.
+
+    The borehole logs' repeated header line (``CLIENT: ...``) is the
+    authoritative source for who retained EBM (per ``site_facts_cache.md``);
+    the ABAData ``licensee`` is the well owner and is a different thing. The
+    LLM occasionally sets ``client_name`` to the licensee instead, so this
+    deterministic reconciliation overrides it and records a flag when they
+    disagree.
+    """
+    logs = facts.get("borehole_logs") or {}
+    log_sets = logs.get("log_sets") or []
+    header_clients = [
+        ls.get("client_name_header")
+        for ls in log_sets
+        if isinstance(ls, dict) and ls.get("client_name_header")
+    ]
+    if not header_clients:
+        return
+    from collections import Counter
+
+    best = Counter(header_clients).most_common(1)[0][0]
+    current = facts.get("client_name")
+    if current and str(current).strip().lower() != str(best).strip().lower():
+        flags = facts.setdefault(_FLAG_KEY, [])
+        if not isinstance(flags, list):
+            flags = []
+            facts[_FLAG_KEY] = flags
+        flags.append({
+            "message": (
+                f"Client name corrected from '{current}' to '{best}' — the "
+                "borehole log CLIENT header overrides the ABAData licensee."
+            ),
+            "field": "client_name",
+        })
+    facts["client_name"] = best
+
+
 def extract_site_facts(
     session: ReportSession,
     llm: LLMClient,
@@ -135,6 +173,10 @@ def extract_site_facts(
         max_tokens=32_000,
     )
 
+    # Deterministic reconciliation: client_name comes from the borehole-log
+    # CLIENT header, never the ABAData licensee.
+    _reconcile_client_name(result)
+
     # Split the flags out of the facts object.
     flags = result.pop(_FLAG_KEY, []) or []
     if not isinstance(flags, list):
@@ -156,4 +198,32 @@ def merge_cached_facts(session: ReportSession, cached: dict[str, Any]) -> None:
     """
     session.site_facts = dict(cached)
     session.extraction_flags = list(cached.get(_FLAG_KEY, []) or [])
+    session.save_site_facts()
+
+
+def source_files(session: ReportSession) -> list[dict[str, Any]]:
+    """Category + name of every source document in the session.
+
+    Recorded in the downloaded site_facts.json so the upload confirmation
+    can list which documents the cached facts were extracted from.
+    """
+    out: list[dict[str, Any]] = []
+    for cat in EXTRACT_CATEGORIES:
+        for f in session.files.get(cat, []):
+            out.append({"category": cat, "name": f["name"]})
+    return out
+
+
+def load_cached_facts(
+    session: ReportSession,
+    site_facts: dict[str, Any],
+    extraction_flags: list[dict[str, Any]] | None = None,
+) -> None:
+    """Load a previously-downloaded site_facts.json into the session.
+
+    Skips the LLM extraction entirely; the caller (router) is responsible
+    for the confirmation step and setting the session state.
+    """
+    session.site_facts = dict(site_facts)
+    session.extraction_flags = list(extraction_flags or [])
     session.save_site_facts()

@@ -8,7 +8,7 @@ next to the report, and summarised in the chat reply.
 
 ## Why this exists
 Some text in the report is Claude's own interpretation, not a data lookup (for
-example the Section 5.2 closing paragraph, intake Q18), and some sections leave
+example the Section 5.2 closing paragraph), and some sections leave
 placeholders or skip silently. The practitioner should not have to discover
 these by reading the whole report. Be specific, cite the section number, and
 say *what to do*.
@@ -17,8 +17,8 @@ say *what to do*.
 
 1. **Check / verify** — Claude-authored judgment or inference the practitioner
    should confirm. State what Claude concluded and what it rested on. Always
-   include: any text written from intake Q18 when the practitioner asked Claude
-   to draft it; delineation/"achieved" statements that depend on an override or
+   include: the Section 5.2 closing paragraph (always Claude-authored; state
+   the depth figures it rested on); delineation/"achieved" statements that depend on an override or
    a `no_coverage` direction; any conclusion sentence ("further remediation
    required", "not recommended", etc.) and the rule that produced it.
 2. **Uncertain** — places Claude made a call between reasonable options, or
@@ -31,6 +31,9 @@ say *what to do*.
    (Phase 1 ESA LLD/UWI vs borehole logs), any `extraction_flags` from
    `site_facts.json`, any operation or generator line that printed `✗` or
    `⚠` (quote the section and message).
+   Also include, under **Incomplete**, every `[REASON FOR EXCLUSION — PRACTITIONER TO CONFIRM]`
+   placeholder the generator wrote in Section 5's intro for an "Excluded Background" borehole
+   (`excel_data.json` → `section5_data.excluded_background`): name the borehole and what to confirm.
 4. **Incomplete** — everything still left for the practitioner to fill:
    every literal placeholder left in the report (scan the final DOCX for
    `XX`, `Figure XX`, `Tables XX`, `[SITE-CONTEXT PLACEHOLDER]`,
@@ -68,3 +71,8 @@ say *what to do*.
 ```bash
 python3 scripts/write_practitioner_info.py practitioner_info.json "<output_folder>"
 ```
+
+
+## Unread source files (rule added 2026-10-02)
+
+For every `extraction_flags` entry of the form "no extractable text", add one item under **Not found / not available** naming the file, and one item under **Incomplete** with the fill-in list the practitioner must complete in `site_facts.json` (or the web app's form) for that entry: `document_type`, `year`, `company` (author of the report, needed for the citation), `findings_summary` (2-5 sentences), `apecs` (list), `copcs` (list). Say that the file was left out of Section 1.2.1 and the Executive Summary until these are entered.

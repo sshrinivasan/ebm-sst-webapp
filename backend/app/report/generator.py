@@ -1,12 +1,14 @@
 """Subprocess wrapper for ``generate_ebm_report.py`` (skill Step 2).
 
-The generator is a standalone script with 7 positional args:
+The generator is a standalone script with positional args:
 
-    references_folder excel output_folder site_lsd client_name site_facts.json figures_zip
+    references_folder excel output_folder site_lsd client_name site_facts.json
+    figures_zip report_type em_survey exploratory_boreholes exploratory_max_depth_m
 
 It reads the Excel mechanically (openpyxl), writes ``excel_data.json`` into the
 output folder, and produces the partial DOCX with template placeholders. The
-LLM is never involved here.
+LLM is never involved here. The last four args come from the intake answers
+(Q21 report type, Q22c EM survey, Q22a exploratory boreholes, Q22b max depth).
 """
 from __future__ import annotations
 
@@ -34,6 +36,36 @@ def _reconciled(site_facts: dict[str, Any], key: str) -> str | None:
     return str(value) if value else None
 
 
+def _report_type(value: Any) -> str:
+    """Intake Q21 → generator's ``report_type`` arg (standard|presence_absence)."""
+    v = str(value or "").lower()
+    return "presence_absence" if "presence" in v or "absence" in v else "standard"
+
+
+def _em_survey(value: Any) -> str:
+    """Intake Q22c → generator's ``em_survey`` arg (none|no_anomaly|anomaly)."""
+    v = str(value or "").lower()
+    if "anomaly" in v:
+        return "no_anomaly" if "no" in v else "anomaly"
+    return "none"
+
+
+def _exploratory_boreholes(value: Any) -> str:
+    """Intake Q22a → comma-separated exploratory borehole IDs.
+
+    The intake question is a table of ``{borehole_id, apec}`` rows; the
+    generator only needs the IDs (comma-separated). Falls back to a plain
+    string for older sessions that answered the old text question.
+    """
+    if isinstance(value, list):
+        return ",".join(
+            str(row.get("borehole_id", "")).strip()
+            for row in value
+            if isinstance(row, dict) and str(row.get("borehole_id", "")).strip()
+        )
+    return str(value or "").strip()
+
+
 def run_generator(
     session: ReportSession,
     *,
@@ -49,7 +81,9 @@ def run_generator(
 
     ``site_lsd``/``client_name`` default to the reconciled values in
     ``site_facts.json`` (per the skill, they are derived in Step 1c, never
-    typed by the user).
+    typed by the user). The last four generator args come from the intake
+    answers: Q21 → report_type, Q22c → em_survey, Q22a → exploratory
+    boreholes, Q22b → exploratory max depth.
     """
     if not GENERATOR_SCRIPT.exists():
         raise GeneratorError(f"Generator script not found: {GENERATOR_SCRIPT}")
@@ -61,6 +95,12 @@ def run_generator(
     site_facts = session.site_facts or {}
     site_lsd = site_lsd or _reconciled(site_facts, "site_lsd")
     client_name = client_name or _reconciled(site_facts, "client_name")
+
+    answers = session.intake_answers or {}
+    report_type = _report_type(answers.get("q21"))
+    em_survey = _em_survey(answers.get("q22c"))
+    exploratory_boreholes = _exploratory_boreholes(answers.get("q22a"))
+    exploratory_max_depth_m = str(answers.get("q22b") or "").strip()
 
     cmd = [
         sys.executable,
@@ -76,6 +116,9 @@ def run_generator(
     cmd.append(str(site_facts_path))
     if figures_zip_path is not None:
         cmd.append(str(figures_zip_path))
+    # Positional args 8-11 (defaults handled by the script when omitted, but
+    # they are positional so always pass all four).
+    cmd.extend([report_type, em_survey, exploratory_boreholes, exploratory_max_depth_m])
 
     try:
         proc = subprocess.run(

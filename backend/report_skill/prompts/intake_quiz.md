@@ -145,8 +145,10 @@ reason (see the "Python-authored sections" table in SKILL.md).
 
 ### Q21 — Report type: Presence/Absence P2 or Standard Tier 1 P1 (always ask — not derivable from any source)
 
-Drives Section 1.1's objective-sentence variant (see
-`prompts/s1_1_objectives_scope.md`). Nothing in `site_facts.json`, the
+Drives Section 1.1's objective-sentence variant. Section 1.1 is now written by
+the generator (`generate_section1_1()`); the answer is passed as the generator's
+8th argument `report_type` (`standard` or `presence_absence`). Ask this **before**
+running the generator. Nothing in `site_facts.json`, the
 Excel workbook, or any source PDF indicates which of these two report types
 this run is — always ask, every run:
 
@@ -154,8 +156,8 @@ this run is — always ask, every run:
 > routine report (characterization + delineation + closure evaluation)?"
 
 Two possible answers, each selecting one fixed objective sentence verbatim
-(the scope-of-work bullet list after it is identical either way — see
-`prompts/s1_1_objectives_scope.md`):
+(the scope-of-work bullet list after it is identical either way, fixed in
+`generate_section1_1()`):
 - **Presence/Absence P2** → "The objective of the assessment was to
   investigate each area of potential environmental concern (APEC) for the
   presence or absence of the contaminants of potential concern (CoPCs)."
@@ -167,57 +169,40 @@ Two possible answers, each selecting one fixed objective sentence verbatim
 
 ---
 
-### Q22 — DWDA exploratory boreholes and sump outcome (always asked — a DWDA search is always performed at every site)
+### Q22 — DWDA (Section 4.2): now handled by the generator
 
-Unlike most conditional questions in this quiz, Q22 is **never skipped**:
-per standing decision, a DWDA search (exploratory drilling looking for a
-soil waste-mix zone) is always performed regardless of whether it
-ultimately finds anything, so this question always applies. It has three
-parts — (a) is always answered; (b) decides which of (c)/(d) apply.
+Sections 4.2's DWDA and DWDA NIL FINDINGS subsections are written by
+`generate_section4_2_dwda()` in `generate_ebm_report.py` (the old prompt files
+were retired). The DWDA exploratory boreholes and their depth are asked **here
+in the intake quiz and nowhere else** (never read from the borehole logs):
 
-**(a) Exploratory boreholes — always ask:**
-> "For the DWDA, how many exploratory boreholes were advanced to locate
-> the drilling waste disposal area (before knowing whether a waste-mix
-> zone would be found), and what are their borehole IDs? (e.g. BH26-01 to
-> BH26-04.)"
-
-Once you have the borehole-ID list, look up each borehole's
-`total_depth_m` in `site_facts.json`'s `borehole_logs.boreholes[]` and take
-the max — this is what the "to a maximum depth of X mbgs" clause in the
-exploratory-boreholes sentence uses (computed per-site, not a fixed AER
-value; see `prompts/s4_2_dwda.md`).
-
-**(b) Was a sump/soil waste-mix zone actually found? — auto-derived, do
-not ask.** `excel_data.json`'s `dwda_data` key (Step 2) is non-`null` exactly
-when a `"DWDA-Char..."` row exists in `Borehole Rationale` — that row only
-exists because a characterization borehole was assigned, which only happens
-once a sump was actually found. So `dwda_data` non-`null` -> Yes, `null` ->
-No. This used to be a separate "always ask, then cross-check" question; the
-cross-check never actually disagreed with the Excel in practice, which is
-what "always ask" was hedging against — drop the ask and trust the
-derivation. Only fall back to asking if `dwda_data` is non-`null` but the
-characterization row looks malformed (e.g. present but with no boreholes
-listed) — that's a data problem worth surfacing, not a normal "ask every
-time" path.
-
-**(c) If (b) is "No" — ask about a geophysical (EM) survey:**
-> "Was a geophysical (EM) survey conducted at this site? If so, did it
-> show a response indicative of a drilling waste disposal area?"
-
-Answer must resolve to exactly one of three outcomes, which pick the
-matching variant in `prompts/s4_2_dwda_nil.md`:
-- No survey was conducted → Variant A
-- Survey conducted, no anomaly/response indicative of a DWDA → Variant B
-- Survey conducted, an anomaly is present but not attributed to a DWDA →
-  Variant C
-
-Don't ask for the survey's citation, appendix letter, figure number, or
-region name here — those are always left as literal placeholders (see
-`prompts/s4_2_dwda_nil.md`).
-
-**(d) If (b) is "Yes"** — no further sub-question; proceed with
-`prompts/s4_2_dwda.md`'s normal DWDA subsection using `excel_data.json`'s
-`dwda_data` key.
+- **(a) Exploratory boreholes — from the workbook if possible, otherwise asked.**
+  If `Borehole Rationale` has a "DWDA Search" row, its boreholes are used as the
+  exploratory boreholes and nothing is asked about IDs. Otherwise, if the first
+  run's log says `DWDA_EXPLORATORY_NEEDED`, ask: "Were any exploratory boreholes
+  advanced to locate a drilling waste disposal area? If so, which (IDs)?" and
+  pass the list as the generator's 10th argument `exploratory_boreholes` (e.g.
+  `BH26-25` or `BH26-01,BH26-02`; use `""` for none).
+- **(b) Maximum depth — always asked when exploratory boreholes exist** (from
+  the "DWDA Search" row or from (a)), i.e. when the log says `DWDA_DEPTH_NEEDED`
+  or the subsection is written: "To what maximum depth (mbgs) were the DWDA
+  exploratory boreholes advanced?" → 11th argument `exploratory_max_depth_m`
+  (e.g. `6.0`). Without it the report shows a bracketed `[X]`.
+- **(c-pre) Which subsection — auto-derived.**
+  - "DWDA-Char..." / "DWDA-Delin..." rows in `Borehole Rationale` → the "found"
+    subsection.
+  - No such rows but exploratory boreholes exist (from the "DWDA Search" row or
+    the quiz) → the NIL FINDINGS subsection.
+  - No DWDA-Char/Delin rows **and** no exploratory boreholes → **neither**
+    subsection is written (both headings removed).
+  After answering (a)/(b), re-run the generator (under a second).
+- **(c) EM survey — asked only when the NIL subsection was written.** Run the generator with the default (`em_survey = none`, Variant
+  A). If its log says "NIL variant", ask: "Was a geophysical (EM) survey
+  conducted? If so, did it show a response indicative of a drilling waste
+  disposal area?" and re-run the generator (under a second) with
+  `em_survey` = `none` (no survey, Variant A), `no_anomaly` (Variant B) or
+  `anomaly` (anomaly not attributed to a DWDA, Variant C) as argument 9.
+  Citation, appendix letter, figure number and region stay literal placeholders.
 
 ---
 
@@ -246,4 +231,4 @@ region name here — those are always left as literal placeholders (see
 | Q19 | ~~Removed — Section 5.4 uses a fixed template sentence with the background BH list auto-derived from unique Sample IDs with APEC = 'Background' in the `Tier 1 Exceedances` sheet (sorted, joined with commas and "and"). Never ask the user for this.~~ | Section 5.4 background BH sentence |
 | Q20 | *(Reduced — auto-derived for every APEC, no free-form list needed)* `justified`/`anthropogenic`/`comparable_background` come from exec_summary Step 2's per-area classification; `nil_findings` comes from the same "was anything actually sampled" signal as Q22(b) (only applies to search-then-sample APECs like DWDA) — see `prompts/s8_summary.md`. Only ask if a specific APEC's verdict is genuinely ambiguous after auto-derivation. | Section 8 per-APEC bullets |
 | Q21 | Is this a Presence/Absence Phase 2 assessment, or a Standard Tier 1 routine report? | Section 1.1 objective-sentence variant |
-| Q22 | *(a: always asked)* Exploratory borehole count/IDs. *(b: auto-derived from `excel_data.json`'s `dwda_data`, not asked)*. *(c: asked only when derived (b) is No)* Was an EM survey done and did it show an anomaly? | Section 4.2's DWDA/DWDA-NIL subsections (which one gets content, and DWDA-NIL's variant) |
+| Q22 | *(a: exploratory borehole IDs, asked only if there is no DWDA Search row; b: their max depth)* *(c: asked only when the NIL subsection was written)* Was an EM survey done and did it show an anomaly? | Section 4.2's DWDA/DWDA-NIL subsections (which one gets content, and DWDA-NIL's variant) |

@@ -25,8 +25,15 @@ workbook and figures zip the app already exports.
    intake answers → LLM authoring → apply operations → practitioner info) as a single
    background job with progress stages. The user watches progress but never answers
    questions mid-pipeline.
-6. **Authoring (skill Step 3):** per-section LLM calls using the skill's prompt files →
-   operations JSON → `apply_operations.py`.
+6. **Authoring (skill Step 3):** **one consolidated LLM call** producing
+   `authored.json` (blocks per Claude-authored key — exec summary, 4.3, 5.1,
+   5.2, 5.3, Section 8 — plus `practitioner_information`), following the
+   skill's `one_call_authoring.md` master prompt. `assemble_operations.py`
+   turns it into the operations JSON → `apply_operations.py`. Most sections
+   that used to be Claude-authored (1, 1.1, 1.2.1, 4.2, 4.2.1, 5 intro, 5.3
+   figures, 5.4, 7.1, 7.2, Appendix E) are now Python-authored in the
+   generator. (Optimization: was one call per prompt file; consolidated to cut
+   the authoring stage from ~10 round-trips to 1.)
 7. **Async model — non-blocking:** every long-running step (extraction, prepare, hands-off
    pipeline) runs as a **background job**; the endpoint returns immediately (HTTP 202) with
    a `job_id`, and the frontend polls `GET /api/report/status/{id}` for progress stages.
@@ -84,9 +91,9 @@ flowchart TD
 flowchart TD
     L[POST /api/report/generate - single background job] --> M[Stage 1: regenerate with intake answers]
     M --> N[partial DOCX + excel_data.json]
-    N --> O[Stage 2: LLM section authoring]
-    O --> P[operations.json]
-    P --> Q[Stage 3: apply_operations.py]
+    N --> O[Stage 2: one-call authoring - authored.json]
+    O --> P[Stage 3: assemble_operations.py - operations.json + practitioner_info.json]
+    P --> Q[Stage 4: apply_operations.py]
     Q --> R[final DOCX + practitioner info]
     R --> S[GET /api/report/download]
     L -.->|poll stages| T[GET /api/report/status/id]
@@ -132,11 +139,11 @@ PDF→PNG rendering and pass pages as image content parts.
 | `session.py` | Session store (in-memory dict keyed by id, mirroring `_CONTEXT_CACHE`), file storage under a per-session dir, **non-linear state machine with back-edges** (not a strict linear flow): `files ⇄ extracting ⇄ facts_review → preparing → intake → generating → done`. Back-transitions: a flag needing a missing file returns to `files` (re-extract after upload); changed intake answers return to `preparing` (re-run the background generator to recompute conditional questions). Re-extraction can reuse cached facts for unchanged files (mirrors the skill's Step 0 cache). The hands-off phase (`generating`) is a single background job with internal stages (regenerate → author → apply → practitioner) and no user interaction |
 | `llm.py` | Provider-agnostic LLM client — `openai` SDK pointed at `https://openrouter.ai/api/v1` with `OPENROUTER_API_KEY` + `REPORT_MODEL` env vars. Helpers: `complete_json()` (JSON-mode chat completion), `ingest_documents()` (PDF/Word → text or page images), message assembly. Default model = a Claude model via OpenRouter to mimic the current setup; switchable via env |
 | `extract.py` | Step 1c: **one** LLM call per site-facts extraction (the webapp's equivalent of the skill's subagent) — system = `site_facts_cache.md` field list, user = ingested text/images from ABAData/Phaseview/Phase 1 ESA/borehole logs, response = `site_facts.json` schema (JSON mode). **The Excel is never read by the LLM** — it's read mechanically by the generator (`openpyxl`) into `excel_data.json`. Unresolvable/ambiguous fields are recorded as `null` + an entry in `extraction_flags[]` (per the skill's rule — the LLM never guesses). A missing source document (e.g. no ABAData or Phaseview uploaded) is itself a flag: the user either uploads the file (back to Files, re-extract) or confirms proceeding without it (generator degrades gracefully — `site_type` falls back to an intake question, Section 2.1 stays as placeholders, gap recorded in the practitioner hand-off). The review step turns each flag into a required user resolution |
-| `generator.py` | Subprocess wrapper for `generate_ebm_report.py` (7 positional args: references folder, excel, output folder, site_lsd, client_name, site_facts.json, figures zip). Captures stdout + `excel_data.json` |
-| `intake.py` | Intake question definitions + applicability logic (from `intake_quiz.md`): always-ask Q21, Q22(a); conditional Q22(c), Q14, Q6, Q18; auto-derived Q0/Q1 shown in review |
-| `sections.py` | Per-section LLM authoring: iterates the Step 3 section table, one API call per prompt file (system = prompt content, user = site_facts.json + excel_data.json + relevant data; figure PNGs as image content parts for `s5_3_footprint.md`), collects operations |
-| `operations.py` | Operation JSON validation + `apply_operations.py` subprocess wrapper |
-| `practitioner.py` | Step 6: build `Practitioner_Information_<site>.docx` via `write_practitioner_info.py` |
+| `generator.py` | Subprocess wrapper for `generate_ebm_report.py` (positional args: references folder, excel, output folder, site_lsd, client_name, site_facts.json, figures zip, report_type, em_survey, exploratory boreholes, exploratory max depth — the last four mapped from intake Q21/Q22). Captures stdout + `excel_data.json` (now includes `section5_present`, `authoring_facts`, `section1_opening_sentence`) |
+| `intake.py` | Intake question definitions + applicability logic (from `intake_quiz.md`): always-ask Q21, Q22(a); conditional Q22(b) (exploratory max depth), Q22(c) (EM survey), Q14, Q6; auto-derived Q0/Q1/Q22(d) (sump found) shown in review |
+| `sections.py` | Step 3 authoring in **one consolidated LLM call** producing `authored.json`: system = `one_call_authoring.md` master guide + the per-key prompt files (exec_summary, s4_3_chloride, s5_1_phase1, s5_2_transport, s5_3_footprint, s8_summary, practitioner_information), user = site_facts.json + excel_data.json + intake answers, response = blocks per key + practitioner_information. Enforces the Section 5 gate (s5_* keys null when `section5_present` is false). `REPORT_MAX_TOKENS` bounds the single response (default 64k) |
+| `operations.py` | Operation JSON validation + `assemble_operations.py` wrapper (authored.json → operations.json + practitioner_info.json) + `apply_operations.py` subprocess wrapper |
+| `practitioner.py` | Step 6: run `write_practitioner_info.py` on the `practitioner_info.json` produced by assemble_operations → `Practitioner_Information_<site>.docx` (leftover placeholders auto-scanned by the script) |
 | `jobs.py` | **Non-blocking** background job runner — in-process thread pool + status store keyed by `job_id` (pending/running/done/error, progress stages, partial results). Endpoints return HTTP 202 with `job_id` immediately; the frontend polls `GET /api/report/status/{id}`. Long LLM calls run in background threads with generous HTTP timeouts |
 
 ## New endpoints
@@ -179,15 +186,16 @@ PDF→PNG rendering and pass pages as image content parts.
      `site_facts.json` is saved on confirm.
   3. **Intake** — after a brief automatic "analyzing data" step (background generator run
      that computes the conditional logic), a dynamic form with only applicable questions
-     (Q21, Q22a, Q22c, Q14, Q6, Q18), each with a fixed answer type (radio/text/number).
+     (Q21, Q22a, Q22b, Q22c, Q14, Q6), each with a fixed answer type (radio/text/number).
      No chat, no notes box, no borehole rationale table (the `Borehole Rationale` sheet
      comes from the webapp export, user-added).
 
   **Hands-off phase (one action, no user input):**
   4. **Generate Report** — a single button starts the staged background pipeline
-     (regenerate with intake answers → LLM authoring → apply operations → practitioner
-     info). The UI shows stage progress (e.g. "Regenerating", "Authoring Exec Summary",
-     "Authoring Section 4.2", "Applying operations") but accepts no input.
+     (regenerate with intake answers → one-call LLM authoring → assemble operations →
+     apply operations → practitioner info). The UI shows stage progress (e.g.
+     "Regenerating", "Authoring all report sections (single LLM call)", "Assembling
+     operations", "Applying operations") but accepts no input.
   5. **Done** — download final DOCX + practitioner info; summary of Check/Uncertain/Not
      found/Incomplete items.
 - `api.ts` — new functions: `reportStart`, `reportExtract`, `reportConfirmExtract`,
@@ -223,9 +231,9 @@ All long-running steps use the same UX pattern (non-blocking job + polling):
   button.
 - **Prepare:** a brief "Analyzing data…" spinner while the generator computes
   `excel_data.json` to drive the conditional intake questions.
-- **Hands-off Generate Report:** staged progress — "Regenerating…", "Authoring Exec
-  Summary…", "Authoring Section 4.2…", "Applying operations…", "Done" — with no input
-  accepted until the final download.
+- **Hands-off Generate Report:** staged progress — "Regenerating…", "Authoring all
+  report sections (single LLM call)…", "Assembling operations…", "Applying
+  operations…", "Done" — with no input accepted until the final download.
 
 ## Iteration model
 

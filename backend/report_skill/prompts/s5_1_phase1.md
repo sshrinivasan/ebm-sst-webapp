@@ -105,7 +105,7 @@ After the bullets, always add this paragraph — it is boilerplate:
 - `{distance}` — cannot be derived from cached facts. Use `[XX m]` as a
   placeholder for the report author to fill in.
 - If any background boreholes are near pipelines or other infrastructure
-  (cross-reference background borehole list from `s5_intro.md` Step 1 with
+  (cross-reference the background borehole list in `excel_data.json`'s `section5_data.background_boreholes` with
   pipeline/infrastructure mentions in `phase1_esa.additional_info_text`) →
   append: "Two potential exceptions would be {BH list}, which are in the
   general vicinity of {infrastructure} (Figure XX)."

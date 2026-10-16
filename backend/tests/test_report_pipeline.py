@@ -4,13 +4,25 @@ from pathlib import Path
 import pytest
 
 from app.report import pipeline as pipeline_mod
-from app.report.sections import SECTION_PROMPTS
 from app.report.session import ReportSession, SessionError
 
 
 class FakeLLM:
     def complete_json(self, system, user, **kwargs):
-        return {"op": "replace_between", "blocks": [{"style": "body", "text": "x"}]}
+        # Single consolidated call -> authored.json (Section 5 absent here, so
+        # the s5_* keys are null).
+        return {
+            "exec_summary": [{"style": "body", "text": "x"}],
+            "s4_3_chloride": [{"style": "body", "text": "x"}],
+            "s5_1_phase1": None,
+            "s5_2_transport": None,
+            "s5_3_footprint": None,
+            "s8_summary": [{"style": "body", "text": "x"}],
+            "practitioner_information": {
+                "site": "x", "report": "x",
+                "check": [], "uncertain": [], "not_found": [], "incomplete": [],
+            },
+        }
 
 
 def _ready_session(tmp_path: Path) -> ReportSession:
@@ -49,6 +61,17 @@ def test_pipeline_runs_all_stages(tmp_path: Path, monkeypatch):
         session.save_excel_data({"dwda_data": None, "tier1_exceedances": []})
         return session.excel_data
 
+    def fake_assemble(session, **kwargs):
+        session.operations = [
+            {"op": "replace_between", "start_placeholder": "<INSERT_EXEC_SUMMARY_START>",
+             "end_placeholder": "<INSERT_EXEC_SUMMARY_END>", "blocks": [{"style": "body", "text": "x"}]},
+        ]
+        session.practitioner_info = {
+            "site": "x", "report": "x",
+            "check": [], "uncertain": [], "not_found": [], "incomplete": [],
+        }
+        return session.operations
+
     def fake_apply(session, **kwargs):
         session.final_docx = str(session.dir / "output" / "final.docx")
         Path(session.final_docx).write_bytes(b"docx")
@@ -60,6 +83,7 @@ def test_pipeline_runs_all_stages(tmp_path: Path, monkeypatch):
         return Path(session.practitioner_docx)
 
     monkeypatch.setattr(pipeline_mod, "run_generator", fake_generator)
+    monkeypatch.setattr(pipeline_mod, "assemble_operations", fake_assemble)
     monkeypatch.setattr(pipeline_mod, "apply_operations", fake_apply)
     monkeypatch.setattr(pipeline_mod, "write_practitioner_docx", fake_practitioner)
 
@@ -71,8 +95,11 @@ def test_pipeline_runs_all_stages(tmp_path: Path, monkeypatch):
     assert s.state == "done"
     assert s.final_docx is not None
     assert s.practitioner_docx is not None
-    assert len(s.operations) == len(SECTION_PROMPTS)
+    assert len(s.operations) == 1
+    assert s.authored["exec_summary"] == [{"style": "body", "text": "x"}]
     assert stages[0].startswith("Regenerating")
+    assert any("Authoring all report sections" in m for m in stages)
+    assert any("Assembling operations" in m for m in stages)
 
 
 def test_prepare_job(tmp_path: Path, monkeypatch):

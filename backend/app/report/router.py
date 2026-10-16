@@ -5,17 +5,19 @@ Hands-off phase: generate (single background job) → status → download.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from .extract import extract_site_facts
+from .extract import extract_site_facts, load_cached_facts, source_files
 from .intake import applicable_questions, auto_derived_summary, validate_answers
 from .jobs import runner
-from .llm import LLMClient
+from .llm import LLMClient, model_for
 from .pipeline import run_extraction_job, run_hands_off_pipeline, run_prepare_job
 from .session import CATEGORIES, SessionError, store
 
@@ -121,6 +123,75 @@ def confirm_extract(session_id: str, req: ConfirmExtractRequest) -> dict[str, An
     return session.to_public()
 
 
+# ---------------------------------------------------------------------------
+# Cached site facts (download / upload — skips the LLM extraction)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/facts/inspect")
+async def facts_inspect(session_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+    """Parse an uploaded site_facts.json and return its contents for confirmation.
+
+    Does NOT load anything into the session — the frontend shows the source
+    files (plus client + LSD) and asks the user to confirm before loading.
+    """
+    _session(session_id)
+    try:
+        payload = json.loads((await file.read()).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, f"Not a valid JSON file: {exc}")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "The cached file must be a JSON object.")
+    site_facts = payload.get("site_facts")
+    if not isinstance(site_facts, dict):
+        raise HTTPException(400, "The cached file is missing a 'site_facts' object.")
+    return {
+        "client_name": site_facts.get("client_name"),
+        "site_lsd": site_facts.get("site_lsd"),
+        "source_files": payload.get("source_files") or [],
+        "site_facts": site_facts,
+        "extraction_flags": payload.get("extraction_flags") or [],
+        "model": payload.get("model"),
+        "extracted_at": payload.get("extracted_at"),
+    }
+
+
+class FactsLoadRequest(BaseModel):
+    site_facts: dict[str, Any]
+    extraction_flags: list[dict[str, Any]] = []
+
+
+@router.post("/facts/load")
+def facts_load(session_id: str, req: FactsLoadRequest) -> dict[str, Any]:
+    """Load confirmed cached facts into the session (skips LLM extraction)."""
+    session = _session(session_id)
+    load_cached_facts(session, req.site_facts, req.extraction_flags)
+    session.state = "facts_review"
+    return session.to_public()
+
+
+@router.get("/facts/{session_id}")
+def facts_download(session_id: str) -> Response:
+    """Download the current site facts as a portable JSON (for caching)."""
+    session = _session(session_id)
+    if not session.site_facts:
+        raise HTTPException(404, "No site facts available yet.")
+    payload = {
+        "site_facts": session.site_facts,
+        "extraction_flags": session.extraction_flags,
+        "source_files": source_files(session),
+        "model": model_for("extract"),
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    lsd = str(session.site_facts.get("site_lsd") or session.id)
+    filename = f"site_facts_{lsd}.json"
+    return Response(
+        content=json.dumps(payload, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/prepare")
 def prepare(session_id: str) -> dict[str, Any]:
     """Run the generator in the background to compute excel_data.json."""
@@ -181,7 +252,8 @@ def generate(session_id: str) -> dict[str, Any]:
         _llm,
         stage_messages=[
             "Regenerating report with intake answers…",
-            "Authoring sections…",
+            "Authoring all report sections (single LLM call)…",
+            "Assembling operations…",
             "Applying operations…",
             "Building practitioner information…",
         ],

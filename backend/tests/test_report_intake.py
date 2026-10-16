@@ -26,6 +26,33 @@ def test_always_questions_present():
     assert "q22a" in ids
 
 
+def test_q22b_when_exploratory_boreholes_given():
+    s = _session()
+    s.intake_answers = {"q22a": "BH26-01 to BH26-04"}
+    ids = {q["id"] for q in applicable_questions(s)}
+    assert "q22b" in ids
+
+
+def test_q22b_when_exploratory_boreholes_table_given():
+    s = _session()
+    s.intake_answers = {"q22a": [{"borehole_id": "BH26-01", "apec": "DWDA"}]}
+    ids = {q["id"] for q in applicable_questions(s)}
+    assert "q22b" in ids
+
+
+def test_q22b_absent_when_table_has_no_borehole_ids():
+    s = _session()
+    s.intake_answers = {"q22a": [{"borehole_id": "", "apec": ""}]}
+    ids = {q["id"] for q in applicable_questions(s)}
+    assert "q22b" not in ids
+
+
+def test_q22b_absent_without_exploratory_boreholes():
+    s = _session()
+    ids = {q["id"] for q in applicable_questions(s)}
+    assert "q22b" not in ids
+
+
 def test_q22c_when_no_sump_found():
     s = _session(excel_data={"dwda_data": None})
     ids = {q["id"] for q in applicable_questions(s)}
@@ -38,14 +65,9 @@ def test_q22c_absent_when_sump_found():
     assert "q22c" not in ids
 
 
-def test_q14_when_background_chloride_in_play():
+def test_q14_never_asked():
+    # The chloride threshold is fixed at 100 mg/L — Q14 is never asked.
     s = _session(excel_data={"chloride_delineation_data": {"outcome": "NOT_ACHIEVED_BACKGROUND"}})
-    ids = {q["id"] for q in applicable_questions(s)}
-    assert "q14" in ids
-
-
-def test_q14_absent_without_chloride_data():
-    s = _session(excel_data={})
     ids = {q["id"] for q in applicable_questions(s)}
     assert "q14" not in ids
 
@@ -71,7 +93,7 @@ def test_auto_derived_summary():
     by_id = {a["id"]: a for a in summary}
     assert by_id["q0"]["value"]["site_lsd"] == "08-13-016-01 W4"
     assert by_id["q1"]["value"] == "wellsite"
-    assert by_id["q22b"]["value"] is False
+    assert by_id["q22d"]["value"] is False
 
 
 def test_validate_answers_requires_applicable():
@@ -86,7 +108,18 @@ def test_validate_answers_passes_when_filled():
     # Empty session -> no sump found -> q22c (EM survey) also applies.
     answers = {
         "q21": "Standard Tier 1 P1",
-        "q22a": "BH26-01 to BH26-04",
+        "q22a": [{"borehole_id": "BH26-01", "apec": "DWDA"}],
         "q22c": "No survey was conducted",
     }
     assert validate_answers(answers, s) == []
+
+
+def test_validate_answers_rejects_empty_table():
+    s = _session()
+    answers = {
+        "q21": "Standard Tier 1 P1",
+        "q22a": [{"borehole_id": "", "apec": ""}],
+        "q22c": "No survey was conducted",
+    }
+    errors = validate_answers(answers, s)
+    assert any("DWDA exploratory boreholes" in e for e in errors)

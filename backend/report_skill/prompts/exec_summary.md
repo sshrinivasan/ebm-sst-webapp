@@ -1,5 +1,12 @@
 # Executive Summary Prompt
 
+> **Data source override (workbook is never opened).** Every value this file says to read from an Excel sheet
+> (`Borehole_Characteristics`, `EC & SAR Rating Categories`, `Tier 1 Exceedances`) is already computed in
+> `excel_data.json` → `authoring_facts` (see the map in `prompts/one_call_authoring.md`). Use those values;
+> do not look for or ask for the workbook. If a value you need is missing there, write a bracketed
+> practitioner placeholder and list it under Practitioner Information.
+
+
 ## Placeholders
 `<INSERT_EXEC_SUMMARY_START>` / `<INSERT_EXEC_SUMMARY_END>` — bracket the
 existing variant-text block in the Word template. Op type: `replace_between`.
@@ -76,8 +83,13 @@ lookup, not a per-run choice:** use `site_facts.json`'s top-level `site_type`
 field verbatim (auto-derived at Q1 — see `prompts/intake_quiz.md`). Do not
 pick this independently from context or examples. This same value must also
 be used, word for word, in Section 1's "Introduction" paragraph at
-`<INSERT_1_START>`/`_END` (see `prompts/s1_introduction.md`) — the two
+`<INSERT_1_START>`/`_END` (now written by Python, `generate_section1()`) — the two
 paragraphs share this fact and must never disagree on it.
+
+**Reuse the opening sentence verbatim:** the generator writes it to `excel_data.json` as
+`section1_opening_sentence` (client/OWA wording, site name, site type, surface location,
+ending at "(the site)."). Copy it word for word and then append the "The purpose of the
+assessment was..." sentence below. Do not re-derive it from the variants shown here.
 
 **OWA project:**
 > The Orphan Well Association (OWA) retained EBM Geoscience Inc. (EBM) on behalf of [Client] to complete a Phase 2 Environmental Site Assessment (ESA) at the [Site Name] [wellsite/compressor station/facility] at surface location [LSD] (the site). The purpose of the assessment was to investigate each area of potential environmental concern (APEC) for the appropriate contaminants of potential concern (CoPCs) and to confirm the presence or absence of contamination.
@@ -283,13 +295,7 @@ areas differ by site type and by what was actually investigated this run.
 - Take the distinct `APEC` values from `Tier 1 Exceedances` for this run,
   excluding rows where `APEC` is `-` or `Background` (background chloride is
   already covered in Section 3B and never repeated here).
-- **Match variant spellings tolerantly** the same way the previous version
-  of this prompt did for "Well centre"/"DWDA" — normalize case and known
-  synonyms (e.g. "Well Center"/"Well Centre Area"/"Wellhead" → "well
-  centre"; "Drilling Waste Disposal Area (DWDA)"/"Drill Mud Disposal Area" →
-  "DWDA") — and apply the same tolerant-matching approach to whatever other
-  area names appear for this site. If a value doesn't clearly resolve to a
-  sensible area name, don't silently guess — ask the user.
+- **Use the APEC names exactly as they appear in the workbook.** Do not normalize, rename, merge or map them to other names (no "Well Center" → "well centre", no synonym matching). Any area names in this prompt's wording or examples (well centre, DWDA, etc.) are examples only; the report names are whatever the workbook's `APEC` column says.
 
 ### Step 2: Classify each area
 

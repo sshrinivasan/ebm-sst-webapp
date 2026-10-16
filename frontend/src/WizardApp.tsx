@@ -378,7 +378,9 @@ export default function WizardApp() {
       <footer className="wz-footer">
         <div className="wz-footer-left">
           {step > 1 && (
-            <button className="btn btn-ghost" onClick={() => go(step - 1)}>← Back</button>
+            // Back always works — forward prerequisites (e.g. a run result for
+            // step 4) must not block going back.
+            <button className="btn btn-ghost" onClick={() => setStep(step - 1)}>← Back</button>
           )}
         </div>
         <div className="wz-footer-right">
