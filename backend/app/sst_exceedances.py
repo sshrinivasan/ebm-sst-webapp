@@ -1,6 +1,15 @@
 from .context import Context
 import pandas as pd
-from .tier1_exceedances import _lookup_mgmt_limit, _exceeds_mgmt, _exceeds_10x_guideline, chemical_to_label_short_map, chemical_group_columns_maps
+from .tier1_exceedances import (
+    _lookup_limiting,
+    _lookup_tier2,
+    _lookup_mgmt_limit,
+    _build_limit_exceedances,
+    _exceeds_mgmt,
+    _exceeds_10x_guideline,
+    chemical_to_label_short_map,
+    chemical_group_columns_maps,
+)
 from .loader import cleaned_name_to_excel_header_map
 
 sst_exceedance_output_columns = {
@@ -51,16 +60,6 @@ def _to_float_or_none(val):
     except (ValueError, TypeError):
         return None
 
-
-def _lookup_limiting(ctx, param):
-    if param in ctx.frames["limiting_df"].columns:
-        return ctx.frames["limiting_df"][param].iloc[0]
-    return pd.NA
-
-def _lookup_tier2(ctx, param):
-    if param in ctx.frames["tier2_guideline_df"].columns:
-        return ctx.frames["tier2_guideline_df"][param].iloc[0]
-    return pd.NA
 
 def _build_sst_chloride_exceedances(guidelines, scarg_df, df, npp_samples):
     exceedance_rows = []
@@ -174,45 +173,6 @@ def _build_rz_exceedances(guidelines, df):
         rz_cl_exceeded["guideline_value"] = rz_cl_guideline
         rz_cl_exceeded["exceedance_parameter"] = "soluble_ions_chloride_mg_kg"
         rows.append(rz_cl_exceeded)
-
-    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
-
-def _parse_ph_range(val):
-    """Parse a pH guideline of the form '5.3-8.5' into (lower, upper)."""
-    parts = str(val).strip().split("-")
-    if len(parts) != 2:
-        raise ValueError("Unexpected pH guideline format: {0!r}".format(val))
-    return float(parts[0]), float(parts[1])
-
-
-def _build_limit_exceedances(df, guideline_df, compare_cols):
-    """Flag values exceeding the per-column guideline in guideline_df (pH is two-sided)."""
-    ph_lower_bound, ph_upper_bound = _parse_ph_range(guideline_df["general_inorganics_ph"].iloc[0])
-
-    rows = []
-    for col in compare_cols:
-        numeric_col = pd.to_numeric(df[col], errors="coerce")
-
-        # pH has both an upper and lower bound; flag values outside the limiting range
-        if col == "general_inorganics_ph":
-            mask = numeric_col.notna() & ((numeric_col < ph_lower_bound) | (numeric_col > ph_upper_bound))
-            exceeded = df[mask].copy()
-            exceeded["exceedance_parameter"] = col
-            exceeded["guideline_value"] = "{0}-{1}".format(ph_lower_bound, ph_upper_bound)
-            rows.append(exceeded)
-            continue
-
-        limit_val = guideline_df[col].iloc[0]
-        try:
-            limit_val = float(limit_val)
-        except (ValueError, TypeError):
-            continue
-
-        mask = numeric_col > limit_val
-        exceeded = df[mask].copy()
-        exceeded["exceedance_parameter"] = col
-        exceeded["guideline_value"] = limit_val
-        rows.append(exceeded)
 
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 

@@ -94,8 +94,13 @@ def load(ctx: Context) -> Context:
         soil_df_full, ["Tier 2 Guideline"]
     )
 
+    # All guideline frames are normalized to SQL-compatible (snake_case) columns
+    # so every downstream lookup can index by the cleaned param name directly.
     ctx.frames["limiting_df"] = ctx.frames["limiting_df"].rename(columns=excel_header_to_cleaned_name_map)
     ctx.frames["tier2_guideline_df"] = ctx.frames["tier2_guideline_df"].rename(columns=excel_header_to_cleaned_name_map)
+    ctx.frames["management_limits_df"] = ctx.frames["management_limits_df"].rename(columns=excel_header_to_cleaned_name_map)
+    ctx.frames["tier1_bg_df"] = ctx.frames["tier1_bg_df"].rename(columns=excel_header_to_cleaned_name_map)
+    ctx.frames["limiting_tier1_guideline_df"] = ctx.frames["limiting_tier1_guideline_df"].rename(columns=excel_header_to_cleaned_name_map)
 
 
     # Drop empty-depth rows (typically header rows).

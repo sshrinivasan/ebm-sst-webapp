@@ -254,6 +254,16 @@ table.data tbody tr:last-child td { border-bottom: none; }
    ProfileChartPanel component applies .profile-chart-img). */
 .profile-chart-img { max-width: 510px; }
 
+/* Chloride Delineation charts match the Tier 1 graph size. The Tier 1 graphs
+   render 3 per row, so each card is ~1/3 of the row width; cap the Chloride
+   Delineation card at that same width so its image matches the Tier 1 images
+   instead of stretching to the full row. */
+.chart-row .cl-delineation-card {
+  flex: 1 1 320px;
+  min-width: 300px;
+  max-width: calc(33.333% - 16px);
+}
+
 /* Thin, collapsible "plot config" bar above a profile chart (X/Y max + any
    chart-specific inputs). Collapsed it is just a slim toggle row. */
 .profile-chart-config { border-bottom: 1px solid var(--line-2); }

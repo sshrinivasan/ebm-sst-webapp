@@ -22,7 +22,11 @@ from .loader import (
 from .ec_sar_rating import validate_topsoil_depths, compute_ec_sar_ratings
 from .background_guidelines import compute_scarg_guidelines
 from .borehole_stats import filter_borehole_data
-from .tier1_exceedances import tier1_exceedances, depth_specific_tier1_exceedances
+from .tier1_exceedances import (
+    tier1_exceedances,
+    depth_specific_tier1_exceedances,
+    site_specific_tier1_exceedances,
+)
 from .sst_exceedances import sst_exceedances
 from .rosc import rosc_exceedances
 from .tier1_charts import tier1_charts, tier1_variable_charts
@@ -113,6 +117,7 @@ def run(excel_path: str, params: dict | None = None) -> Context:
             ctx.frames["scarg_guidelines_df"] = _scarg_df[["Depth", "EC Guideline", "SAR Guideline"]].reset_index(drop=True)
     ctx = filter_borehole_data(ctx)
     ctx = tier1_exceedances(ctx)
+    ctx = site_specific_tier1_exceedances(ctx)
     ctx = depth_specific_tier1_exceedances(ctx)
     if sst_enabled:
         ctx = npp_analysis(ctx)
@@ -155,6 +160,7 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ("borehole_characteristics", "borehole_characteristics"),
         ("borehole_data", "borehole_data"),
         ("tier1_exceedances_display_df", "tier1_exceedances"),
+        ("site_specific_tier1_exceedances_display_df", "site_specific_tier1_exceedances"),
         ("all_exceedances_display_df", "site_specific_exceedances"),
         ("max_exceedances_per_subarea_df", "max_exceedances_per_subarea"),
         ("tier1_shallow_param_summary", "tier1_shallow_param_summary"),

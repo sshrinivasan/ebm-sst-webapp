@@ -1,8 +1,6 @@
 from .context import Context, InputValidationError
 import pandas as pd
 from .loader import (
-    cleaned_to_excel,
-    excel_header_to_cleaned_name_map,
     cleaned_name_to_excel_header_map,
 )
 
@@ -43,10 +41,11 @@ def _lookup_limiting(ctx, param):
 
 # Add the management limit and 2 other columns, one for 10x guideline, and one for exceeding management limit
 def _lookup_mgmt_limit(ctx, cleaned_name):
-    excel_header = cleaned_to_excel.get(cleaned_name)
-    if excel_header is None or excel_header not in ctx.frames["management_limits_df"].columns:
-        return pd.NA
-    return ctx.frames["management_limits_df"][excel_header].iloc[0]
+    # management_limits_df carries cleaned (snake_case) columns, so index by the
+    # cleaned param name directly.
+    if cleaned_name in ctx.frames["management_limits_df"].columns:
+        return ctx.frames["management_limits_df"][cleaned_name].iloc[0]
+    return pd.NA
 
 def _lookup_tier2(ctx, param):
     # tier2_guideline_df carries cleaned (snake_case) columns, so index by the
@@ -55,11 +54,12 @@ def _lookup_tier2(ctx, param):
         return ctx.frames["tier2_guideline_df"][param].iloc[0]
     return pd.NA
 
+
 def _lookup_tier1_bg(ctx, param):
-    # tier1_bg_df (Tier 1 with background) carries Excel-header columns.
-    excel_header = cleaned_to_excel.get(param)
-    if excel_header is not None and excel_header in ctx.frames["tier1_bg_df"].columns:
-        return ctx.frames["tier1_bg_df"][excel_header].iloc[0]
+    # tier1_bg_df (Tier 1 with background) carries cleaned (snake_case) columns,
+    # so index by the cleaned param name directly.
+    if param in ctx.frames["tier1_bg_df"].columns:
+        return ctx.frames["tier1_bg_df"][param].iloc[0]
     return pd.NA
 
 def _exceeds_mgmt(row):
@@ -227,9 +227,8 @@ def _parse_ph_range(val):
 
 def _build_limit_exceedances(df, guideline_df, compare_cols):
     """Flag values exceeding the per-column guideline in guideline_df (pH is two-sided)."""
-    # guideline_df is sliced with Excel-header columns in the loader; index it with
-    # the cleaned names the rest of this function (and compare_cols) uses.
-    guideline_df = guideline_df.rename(columns=excel_header_to_cleaned_name_map)
+    # guideline_df carries cleaned (snake_case) columns, so index it with the
+    # cleaned names the rest of this function (and compare_cols) uses.
     ph_lower_bound, ph_upper_bound = _parse_ph_range(guideline_df["general_inorganics_ph"].iloc[0])
 
     rows = []
@@ -313,9 +312,12 @@ def tier1_exceedances(ctx: Context) -> Context:
     ab_all_tier1_exceedances_df["chemical_group"] = ab_all_tier1_exceedances_df["exceedance_parameter"].map(
         lambda v: chemical_group_map.get(v)
     )
+    # Keep the column object-dtype so the SCARG override below can assign float
+    # guideline values even when every limiting guideline happens to be an int
+    # (pandas would otherwise infer int64 and reject the float assignment).
     ab_all_tier1_exceedances_df["limiting_guideline"] = ab_all_tier1_exceedances_df["exceedance_parameter"].map(
         lambda p: _lookup_limiting(ctx, p)
-    )
+    ).astype(object)
     ab_all_tier1_exceedances_df["tier1_bg_guideline"] = ab_all_tier1_exceedances_df["exceedance_parameter"].map(
         lambda p: _lookup_tier1_bg(ctx, p)
     )
@@ -451,3 +453,87 @@ def depth_specific_tier1_exceedances(ctx: Context) -> Context:
     ctx.frames["tier1_all_param_summary"] = summarize_exceedances(summary_source_df, cl_col="soluble_ions_chloride_mg_l").rename(columns=summary_headers("mg/l"))
 
     return ctx
+
+def site_specific_tier1_exceedances(ctx: Context) -> Context:
+    # Here we look at T1 with BG and Tier 2
+    _tier1_bg = ctx.frames["tier1_bg_df"]
+    chemical_group_map, chemical_group_to_columns_map = chemical_group_columns_maps(ctx)
+
+    def _guideline_num(df, param):
+        if param in df.columns:
+            return pd.to_numeric(df[param].iloc[0], errors="coerce")
+        return float("nan")
+
+    def _site_specific_guideline(row):
+        param = row["exceedance_parameter"]
+        if chemical_group_map.get(param) == "Hydrocarbons":
+            _t2 = _guideline_num(ctx.frames["tier2_guideline_df"], param)
+            if pd.notna(_t2):
+                return _t2
+        _bg = _guideline_num(_tier1_bg, param)
+        if pd.notna(_bg):
+            return _bg
+        return row["guideline_value"]
+
+    def _bg_range(param):
+        if param in _tier1_bg.columns:
+            _v = _tier1_bg[param].iloc[0]
+            if isinstance(_v, str) and "-" in _v:
+                try:
+                    _lo, _hi = [float(x) for x in _v.split("-", 1)]
+                    return _v, _lo, _hi
+                except ValueError:
+                    pass
+        return None
+
+    _raw = ctx.frames["tier1_exceedances_df"].loc[ctx.frames["tier1_exceedances_display_df"].index]
+    _site_gl = _raw.apply(_site_specific_guideline, axis=1)
+    _site_gl_num = pd.to_numeric(_site_gl, errors="coerce")
+    _orig_gl_num = pd.to_numeric(_raw["guideline_value"], errors="coerce")
+    _val = pd.to_numeric(_raw["exceedance_value"], errors="coerce")
+
+    _keep = _site_gl_num.isna() | (_site_gl_num == _orig_gl_num) | (_val > _site_gl_num)
+
+    for _i, _p in _raw["exceedance_parameter"].items():
+        _r = _bg_range(_p)
+        if _r:
+            _site_gl.loc[_i] = _r[0]
+            _keep.loc[_i] = pd.notna(_val.loc[_i]) and (_val.loc[_i] < _r[1] or _val.loc[_i] > _r[2])
+
+    _keep &= _raw["exceedance_parameter"] != "soluble_ions_chloride_mg_kg"
+
+    _bg_col = _raw["exceedance_parameter"].map(
+        lambda p: _tier1_bg[p].iloc[0] if p in _tier1_bg.columns and pd.notna(_tier1_bg[p].iloc[0]) else None
+    )
+
+    ab_site_specific_exceedances_df = _raw.drop(columns=["tier1_bg_guideline"], errors="ignore").copy()
+    ab_site_specific_exceedances_df["guideline_value"] = _site_gl
+    ab_site_specific_exceedances_df.insert(
+        ab_site_specific_exceedances_df.columns.get_loc("tier2_guideline") + 1, "tier1_bg_guideline", _bg_col
+    )
+    ab_site_specific_exceedances_df = ab_site_specific_exceedances_df[_keep].reset_index(drop=True)
+
+    site_specific_output_columns = {
+        **tier1_exceedance_output_columns,
+        "tier1_bg_guideline": "Tier 1 w BG",
+    }
+
+    # Store the raw site-specific exceedances frame for downstream consumers.
+    ctx.frames["site_specific_tier1_exceedances_df"] = ab_site_specific_exceedances_df
+
+    # Display frame: human-readable column names (Excel headers), parameter names
+    # mapped back to their Excel headers, and dates formatted for the frontend.
+    ab_site_specific_exceedances_df_display = ab_site_specific_exceedances_df[
+        list(site_specific_output_columns.keys())
+    ].rename(columns=site_specific_output_columns)
+    ab_site_specific_exceedances_df_display["Parameter"] = ab_site_specific_exceedances_df_display[
+        "Parameter"
+    ].map(lambda v: cleaned_name_to_excel_header_map.get(v, v))
+    ab_site_specific_exceedances_df_display["Date"] = pd.to_datetime(
+        ab_site_specific_exceedances_df_display["Date"], errors="coerce"
+    ).dt.strftime("%Y-%m-%d")
+    ab_site_specific_exceedances_df_display = ab_site_specific_exceedances_df_display.fillna("-")
+
+    ctx.frames["site_specific_tier1_exceedances_display_df"] = ab_site_specific_exceedances_df_display
+    return ctx
+

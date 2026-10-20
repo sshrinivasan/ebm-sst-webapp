@@ -36,6 +36,7 @@ OUTPUTS = [
     {"var": "borehole_characteristics", "label": "Borehole Characteristics", "tab": "borehole"},
     {"var": "borehole_data", "label": "Borehole Data", "tab": "borehole"},
     {"var": "tier1_exceedances", "label": "Tier 1", "tab": "exceedances"},
+    {"var": "site_specific_tier1_exceedances", "label": "Site Specific Exceedances", "tab": "exceedances"},
     {"var": "site_specific_exceedances", "label": "Site-Specific", "tab": "exceedances"},
     {"var": "max_exceedances_per_subarea", "label": "Max Exceedances per Subarea", "tab": "exceedances"},
     {"var": "depth_specific_tier1", "label": "Depth Specific Tier 1 Exceedances", "tab": "exceedances"},

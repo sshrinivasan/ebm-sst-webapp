@@ -469,7 +469,7 @@ export default function App() {
                         title={`Chloride Profile ${key.slice("cl_delineation_profile_".length)}`}
                         xMaxParam="cl_delineation_x_max" yMaxParam="cl_delineation_y_max"
                         schema={schema} params={params} options={options} setParam={setParam} result={result}
-                        showConfig={false} />
+                        showConfig={false} cardClassName="cl-delineation-card" />
                     ))}
                   {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith("cl_delineation_profile_")).length === 0 && (
                     <div className="card">

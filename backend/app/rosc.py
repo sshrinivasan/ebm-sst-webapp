@@ -1,6 +1,5 @@
 from .context import Context
 from .tier1_exceedances import tier1_exceedance_output_columns, cleaned_name_to_excel_header_map
-from .loader import cleaned_to_excel
 import pandas as pd
 
 def _parse_guideline_bounds(val):
@@ -42,12 +41,13 @@ def _flat_tier1_guideline_lookup(ctx: Context) -> dict:
     row = ctx.frames.get("limiting_tier1_guideline_df")
     if row is None or row.empty:
         return {}
+    # limiting_tier1_guideline_df carries cleaned (snake_case) columns, so the
+    # cleaned param name is the column name directly.
     lookup = {}
-    for cleaned, excel in cleaned_to_excel.items():
-        if excel in row.columns:
-            val = row[excel].iloc[0]
-            if pd.notna(val):
-                lookup[cleaned] = val
+    for col in row.columns:
+        val = row[col].iloc[0]
+        if pd.notna(val):
+            lookup[col] = val
     return lookup
 
 
