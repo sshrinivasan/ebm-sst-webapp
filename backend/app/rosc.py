@@ -1,6 +1,5 @@
 from .context import Context
 from .tier1_exceedances import tier1_exceedance_output_columns, cleaned_name_to_excel_header_map
-from .loader import cleaned_to_excel
 import pandas as pd
 
 def _parse_guideline_bounds(val):
@@ -42,12 +41,13 @@ def _flat_tier1_guideline_lookup(ctx: Context) -> dict:
     row = ctx.frames.get("limiting_tier1_guideline_df")
     if row is None or row.empty:
         return {}
+    # limiting_tier1_guideline_df carries cleaned (snake_case) columns, so the
+    # cleaned param name is the column name directly.
     lookup = {}
-    for cleaned, excel in cleaned_to_excel.items():
-        if excel in row.columns:
-            val = row[excel].iloc[0]
-            if pd.notna(val):
-                lookup[cleaned] = val
+    for col in row.columns:
+        val = row[col].iloc[0]
+        if pd.notna(val):
+            lookup[col] = val
     return lookup
 
 
@@ -58,22 +58,22 @@ def rosc_exceedances(ctx: Context) -> Context:
     # normalize it to the shared name before the output column map below.
     sst_enabled = bool(ctx.params.get("sst_flag", True))
     sst_source = False
-    if sst_enabled and "all_exceedances_df" in ctx.frames:
+    if sst_enabled and "site_specific_sst_exceedances_df" in ctx.frames:
         sst_source = True
-        ab_all_exceedances_df = ctx.frames["all_exceedances_df"]
-        if "tier1_bg" in ab_all_exceedances_df.columns and "tier1_bg_guideline" not in ab_all_exceedances_df.columns:
-            ab_all_exceedances_df = ab_all_exceedances_df.rename(columns={"tier1_bg": "tier1_bg_guideline"})
+        ab_site_specific_sst_exceedances_df = ctx.frames["site_specific_sst_exceedances_df"]
+        if "tier1_bg" in ab_site_specific_sst_exceedances_df.columns and "tier1_bg_guideline" not in ab_site_specific_sst_exceedances_df.columns:
+            ab_site_specific_sst_exceedances_df = ab_site_specific_sst_exceedances_df.rename(columns={"tier1_bg": "tier1_bg_guideline"})
     else:
-        ab_all_exceedances_df = ctx.frames["tier1_exceedances_df"]
+        ab_site_specific_sst_exceedances_df = ctx.frames["tier1_exceedances_df"]
     # Group by the user-selected ROSC grouping column and then parameter to find the maximum per group
     rosc_grouping_column_map = {
         "Subarea": "subarea",
         "APEC": "apec",
     }
-    rosc_grouping_column = ctx.params.get("rosc_grouping_column", "Subarea")
+    rosc_grouping_column = ctx.params.get("rosc_grouping_column", "APEC")
     rosc_group_col = rosc_grouping_column_map.get(rosc_grouping_column, "subarea")
 
-    ab_max_exceedances_df = ab_all_exceedances_df.copy()
+    ab_max_exceedances_df = ab_site_specific_sst_exceedances_df.copy()
     _group_values = ab_max_exceedances_df[rosc_group_col]
     _blank_mask = (
         _group_values.isna()
@@ -116,6 +116,11 @@ def rosc_exceedances(ctx: Context) -> Context:
     ab_max_exceedances_df_display["Parameter"] = ab_max_exceedances_df_display["Parameter"].map(
         lambda v: cleaned_name_to_excel_header_map.get(v, v)
     )
+    # First column holds the row's value of the selected ROSC grouping column
+    # (APEC by default) so the export sheet can show which group each row
+    # represents without extra lookups.
+    _group_display_name = {"apec": "APEC", "subarea": "Subarea"}.get(rosc_group_col, "APEC")
+    ab_max_exceedances_df_display.insert(0, "Grouping", ab_max_exceedances_df_display[_group_display_name])
     ab_max_exceedances_df_display["Date"] = pd.to_datetime(
         ab_max_exceedances_df_display["Date"], errors="coerce"
     ).dt.strftime("%Y-%m-%d")

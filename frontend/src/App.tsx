@@ -38,6 +38,7 @@ function cleanParams(p: Params): Params {
   return out;
 }
 
+
 export default function App() {
   const [schema, setSchema] = useState<Schema | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export default function App() {
   const [chartTab, setChartTab] = useState(1);
   const [bgChlorideSub, setBgChlorideSub] = useState<"data" | "charts">("data");
   const [bgChloridePlot, setBgChloridePlot] = useState(1);
+  const [clDelConfigOpen, setClDelConfigOpen] = useState(false);
   const [sstChartsSub, setSstChartsSub] = useState<"chloride" | "sodium" | "sar">("chloride");
   const [t1Sub, setT1Sub] = useState<"graphs" | "variable">("graphs");
   const [textureSub, setTextureSub] = useState<"tables" | "profile">("tables");
@@ -454,7 +456,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ===== Chloride Delineation (Inputs panel + shared Plot config + one profile chart per 15-BH batch) ===== */}
+          {/* ===== Chloride Delineation (Inputs panel + ONE shared Plot config bar + one profile chart per 15-BH batch) ===== */}
           {active === "cl_delineation" && (
             <div className="stack fade-in">
               {!token && <NeedFile />}
@@ -464,9 +466,28 @@ export default function App() {
                   params={params} options={options} setParam={setParam} />
               )}
               {token && (
-                <CollapsibleInputs title="Plot config"
-                  inputs={schema.inputs.filter((i) => ["cl_delineation_x_max", "cl_delineation_y_max"].includes(i.name))}
-                  params={params} options={options} setParam={setParam} />
+                <div className="profile-chart-config">
+                  <button className="profile-chart-config-toggle" onClick={() => setClDelConfigOpen(!clDelConfigOpen)}>
+                    <span>Plot config</span>
+                    <IcChevron className={`profile-chart-config-chev ${clDelConfigOpen ? "open" : ""}`} />
+                  </button>
+                  {clDelConfigOpen && (
+                    <div className="profile-chart-controls">
+                      <div className="profile-chart-axis">
+                        {(() => {
+                          const xMax = schema.inputs.find((i) => i.name === "cl_delineation_x_max");
+                          const yMax = schema.inputs.find((i) => i.name === "cl_delineation_y_max");
+                          return (
+                            <>
+                              {xMax && <Field spec={xMax} value={params[xMax.name]} options={options} params={params} onChange={(v) => setParam(xMax.name, v)} />}
+                              {yMax && <Field spec={yMax} value={params[yMax.name]} options={options} params={params} onChange={(v) => setParam(yMax.name, v)} />}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               {token && (
                 <div className="chart-row">
@@ -475,9 +496,9 @@ export default function App() {
                     .map((key) => (
                       <ProfileChartPanel key={key} chartKey={key}
                         title={`Chloride Profile ${key.slice("cl_delineation_profile_".length)}`}
-                        xMaxParam="cl_delineation_x_max" yMaxParam="cl_delineation_y_max"
                         schema={schema} params={params} options={options} setParam={setParam} result={result}
-                        showConfig={false} />
+                        showConfig={false}
+                        cardClassName="cl-delineation-card" />
                     ))}
                   {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith("cl_delineation_profile_")).length === 0 && (
                     <div className="card">

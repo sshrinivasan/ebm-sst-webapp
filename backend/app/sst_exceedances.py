@@ -1,6 +1,15 @@
 from .context import Context
 import pandas as pd
-from .tier1_exceedances import _lookup_mgmt_limit, _exceeds_mgmt, _exceeds_10x_guideline, chemical_to_label_short_map, chemical_group_columns_maps
+from .tier1_exceedances import (
+    _lookup_limiting,
+    _lookup_tier2,
+    _lookup_mgmt_limit,
+    _build_limit_exceedances,
+    _exceeds_mgmt,
+    _exceeds_10x_guideline,
+    chemical_to_label_short_map,
+    chemical_group_columns_maps,
+)
 from .loader import cleaned_name_to_excel_header_map
 
 sst_exceedance_output_columns = {
@@ -51,16 +60,6 @@ def _to_float_or_none(val):
     except (ValueError, TypeError):
         return None
 
-
-def _lookup_limiting(ctx, param):
-    if param in ctx.frames["limiting_df"].columns:
-        return ctx.frames["limiting_df"][param].iloc[0]
-    return pd.NA
-
-def _lookup_tier2(ctx, param):
-    if param in ctx.frames["tier2_guideline_df"].columns:
-        return ctx.frames["tier2_guideline_df"][param].iloc[0]
-    return pd.NA
 
 def _build_sst_chloride_exceedances(guidelines, scarg_df, df, npp_samples):
     exceedance_rows = []
@@ -177,45 +176,6 @@ def _build_rz_exceedances(guidelines, df):
 
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
-def _parse_ph_range(val):
-    """Parse a pH guideline of the form '5.3-8.5' into (lower, upper)."""
-    parts = str(val).strip().split("-")
-    if len(parts) != 2:
-        raise ValueError("Unexpected pH guideline format: {0!r}".format(val))
-    return float(parts[0]), float(parts[1])
-
-
-def _build_limit_exceedances(df, guideline_df, compare_cols):
-    """Flag values exceeding the per-column guideline in guideline_df (pH is two-sided)."""
-    ph_lower_bound, ph_upper_bound = _parse_ph_range(guideline_df["general_inorganics_ph"].iloc[0])
-
-    rows = []
-    for col in compare_cols:
-        numeric_col = pd.to_numeric(df[col], errors="coerce")
-
-        # pH has both an upper and lower bound; flag values outside the limiting range
-        if col == "general_inorganics_ph":
-            mask = numeric_col.notna() & ((numeric_col < ph_lower_bound) | (numeric_col > ph_upper_bound))
-            exceeded = df[mask].copy()
-            exceeded["exceedance_parameter"] = col
-            exceeded["guideline_value"] = "{0}-{1}".format(ph_lower_bound, ph_upper_bound)
-            rows.append(exceeded)
-            continue
-
-        limit_val = guideline_df[col].iloc[0]
-        try:
-            limit_val = float(limit_val)
-        except (ValueError, TypeError):
-            continue
-
-        mask = numeric_col > limit_val
-        exceeded = df[mask].copy()
-        exceeded["exceedance_parameter"] = col
-        exceeded["guideline_value"] = limit_val
-        rows.append(exceeded)
-
-    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
-
 def sst_exceedances(ctx: Context) -> Context:
     soil_data_filtered = ctx.frames["soil_data_filtered"]
 
@@ -262,7 +222,7 @@ def sst_exceedances(ctx: Context) -> Context:
     ### end --- Tier 2 ----
     
     # Concat al exceedances tables into a single df for output
-    ab_all_exceedances_df = pd.concat([
+    ab_site_specific_sst_exceedances_df = pd.concat([
         ab_scarg_exceedances_df_sar_removed, # SCARG exceedances
         ab_chloride_exceedances_df,  # SST Chloride
         ab_na_exceedances_df, # SST Na
@@ -275,23 +235,23 @@ def sst_exceedances(ctx: Context) -> Context:
 
     # Add additional columns for display
     chemical_group_map, _ = chemical_group_columns_maps(ctx)
-    ab_all_exceedances_df["mgmt_limit"] = (
-        ab_all_exceedances_df["exceedance_parameter"].map(lambda p: _lookup_mgmt_limit(ctx, p))
+    ab_site_specific_sst_exceedances_df["mgmt_limit"] = (
+        ab_site_specific_sst_exceedances_df["exceedance_parameter"].map(lambda p: _lookup_mgmt_limit(ctx, p))
     )
 
-    ab_all_exceedances_df["exceeds_mgmt"] = ab_all_exceedances_df.apply(_exceeds_mgmt, axis=1)
-    ab_all_exceedances_df["exceeds_10x_guideline"] = ab_all_exceedances_df.apply(_exceeds_10x_guideline, axis=1)
-    ab_all_exceedances_df["exceedance_value"] = pd.to_numeric(
-        ab_all_exceedances_df.apply(lambda r: r.get(r["exceedance_parameter"]), axis=1),
+    ab_site_specific_sst_exceedances_df["exceeds_mgmt"] = ab_site_specific_sst_exceedances_df.apply(_exceeds_mgmt, axis=1)
+    ab_site_specific_sst_exceedances_df["exceeds_10x_guideline"] = ab_site_specific_sst_exceedances_df.apply(_exceeds_10x_guideline, axis=1)
+    ab_site_specific_sst_exceedances_df["exceedance_value"] = pd.to_numeric(
+        ab_site_specific_sst_exceedances_df.apply(lambda r: r.get(r["exceedance_parameter"]), axis=1),
         errors="coerce",
     )
-    ab_all_exceedances_df["media"] = "Soil"
+    ab_site_specific_sst_exceedances_df["media"] = "Soil"
 
-    ab_all_exceedances_df["excavated_replaced"] = ab_all_exceedances_df["comments"].map(_excavated_replaced)
-    ab_all_exceedances_df["label"] = ab_all_exceedances_df["exceedance_parameter"].map(
+    ab_site_specific_sst_exceedances_df["excavated_replaced"] = ab_site_specific_sst_exceedances_df["comments"].map(_excavated_replaced)
+    ab_site_specific_sst_exceedances_df["label"] = ab_site_specific_sst_exceedances_df["exceedance_parameter"].map(
         lambda v: chemical_to_label_short_map.get(v)
     )
-    ab_all_exceedances_df["chemical_group"] = ab_all_exceedances_df["exceedance_parameter"].map(
+    ab_site_specific_sst_exceedances_df["chemical_group"] = ab_site_specific_sst_exceedances_df["exceedance_parameter"].map(
         lambda v: chemical_group_map.get(v)
     )
 
@@ -304,17 +264,17 @@ def sst_exceedances(ctx: Context) -> Context:
 
     existing_tier1_cols = [
         col for col in ["tier1_guideline", "tier1_bg", "tier1_bg_x", "tier1_bg_y"]
-        if col in ab_all_exceedances_df.columns
+        if col in ab_site_specific_sst_exceedances_df.columns
     ]
-    ab_all_exceedances_df = ab_all_exceedances_df.drop(columns=existing_tier1_cols)
+    ab_site_specific_sst_exceedances_df = ab_site_specific_sst_exceedances_df.drop(columns=existing_tier1_cols)
 
-    ab_all_exceedances_df = ab_all_exceedances_df.merge(
+    ab_site_specific_sst_exceedances_df = ab_site_specific_sst_exceedances_df.merge(
         _tier1_lookup.rename(columns={"guideline_value": "tier1_guideline", "tier1_bg_guideline": "tier1_bg"}),
         on=_key,
         how="left",
     )
 
-    ab_all_exceedances_df["limiting_guideline"] = ab_all_exceedances_df["exceedance_parameter"].map(lambda p: _lookup_limiting(ctx, p))
+    ab_site_specific_sst_exceedances_df["limiting_guideline"] = ab_site_specific_sst_exceedances_df["exceedance_parameter"].map(lambda p: _lookup_limiting(ctx, p))
 
     # EC/SAR (SCARG) and Cl/Na (SST) guidelines vary by depth and subarea, so the limiting
     # guideline for those rows is the value that actually governed the exceedance rather
@@ -333,29 +293,29 @@ def sst_exceedances(ctx: Context) -> Context:
     # to numeric) for just those rows. Only these rows are coerced to numeric —
     # everything else (e.g. the two-sided pH "5.1-8.5" range string) is left
     # untouched so the pH guideline survives in the Limiting Guideline column.
-    row_specific = ab_all_exceedances_df["exceedance_parameter"].isin(_row_specific_params)
-    ab_all_exceedances_df.loc[row_specific, "limiting_guideline"] = pd.to_numeric(
-        ab_all_exceedances_df.loc[row_specific, "limiting_guideline"], errors="coerce"
+    row_specific = ab_site_specific_sst_exceedances_df["exceedance_parameter"].isin(_row_specific_params)
+    ab_site_specific_sst_exceedances_df.loc[row_specific, "limiting_guideline"] = pd.to_numeric(
+        ab_site_specific_sst_exceedances_df.loc[row_specific, "limiting_guideline"], errors="coerce"
     )
-    ab_all_exceedances_df.loc[row_specific, "limiting_guideline"] = pd.to_numeric(
-        ab_all_exceedances_df.loc[row_specific, "guideline_value"], errors="coerce"
+    ab_site_specific_sst_exceedances_df.loc[row_specific, "limiting_guideline"] = pd.to_numeric(
+        ab_site_specific_sst_exceedances_df.loc[row_specific, "guideline_value"], errors="coerce"
     )
 
-    ab_all_exceedances_df["tier2_guideline"] = ab_all_exceedances_df["exceedance_parameter"].map(lambda p: _lookup_tier2(ctx, p))
+    ab_site_specific_sst_exceedances_df["tier2_guideline"] = ab_site_specific_sst_exceedances_df["exceedance_parameter"].map(lambda p: _lookup_tier2(ctx, p))
         
-    ab_all_exceedances_df_display = ab_all_exceedances_df[sst_exceedance_output_columns.keys()].rename(columns=sst_exceedance_output_columns)
-    ab_all_exceedances_df_display["Parameter"] = ab_all_exceedances_df_display["Parameter"].map(
+    ab_site_specific_sst_exceedances_df_display = ab_site_specific_sst_exceedances_df[sst_exceedance_output_columns.keys()].rename(columns=sst_exceedance_output_columns)
+    ab_site_specific_sst_exceedances_df_display["Parameter"] = ab_site_specific_sst_exceedances_df_display["Parameter"].map(
         lambda v: cleaned_name_to_excel_header_map.get(v, v)
     )
-    ab_all_exceedances_df_display["Date"] = pd.to_datetime(
-        ab_all_exceedances_df_display["Date"], errors="coerce"
+    ab_site_specific_sst_exceedances_df_display["Date"] = pd.to_datetime(
+        ab_site_specific_sst_exceedances_df_display["Date"], errors="coerce"
     ).dt.strftime("%Y-%m-%d")
-    ab_all_exceedances_df_display = ab_all_exceedances_df_display.fillna("-")
+    ab_site_specific_sst_exceedances_df_display = ab_site_specific_sst_exceedances_df_display.fillna("-")
 
     # Output
-    ctx.frames["all_exceedances_df"] = ab_all_exceedances_df
-    ctx.frames["all_exceedances_display_df"] = ab_all_exceedances_df_display
-    print("SST exceedances complete. Total rows: {0}".format(len(ab_all_exceedances_df)))
-    print(len(ab_all_exceedances_df_display.columns))
-    print(ab_all_exceedances_df_display.columns)
+    ctx.frames["site_specific_sst_exceedances_df"] = ab_site_specific_sst_exceedances_df
+    ctx.frames["site_specific_sst_exceedances_display_df"] = ab_site_specific_sst_exceedances_df_display
+    print("SST exceedances complete. Total rows: {0}".format(len(ab_site_specific_sst_exceedances_df)))
+    print(len(ab_site_specific_sst_exceedances_df_display.columns))
+    print(ab_site_specific_sst_exceedances_df_display.columns)
     return ctx

@@ -36,14 +36,24 @@ export async function exportWorkbook(token: string, params: Params): Promise<Blo
   return r.blob();
 }
 
-export async function exportCharts(token: string, params: Params): Promise<Blob> {
+export async function exportCharts(
+  token: string,
+  params: Params
+): Promise<{ blob: Blob; filename: string }> {
   const r = await fetch("/api/export-charts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, params }),
   });
   if (!r.ok) throw new Error((await r.text()) || "Charts export failed");
-  return r.blob();
+  // The server names the zip after the uploaded Excel file
+  // (e.g. "output_20261022_123456_figures.zip") via Content-Disposition.
+  const cd = r.headers.get("Content-Disposition") || "";
+  const m = /filename="?([^";]+)"?/.exec(cd);
+  const filename = m
+    ? m[1]
+    : `figures_${new Date().toISOString().replace(/[:.]/g, "-")}.zip`;
+  return { blob: await r.blob(), filename };
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,10 @@ _UPLOAD_DIR.mkdir(exist_ok=True)
 # pipeline. In-memory only; /api/export falls back to a re-run if absent.
 _CONTEXT_CACHE: dict[str, Context] = {}
 
+# Original uploaded filename per token, so the figures ZIP can be named after
+# the source Excel file (e.g. "output_20261022_123456_figures.zip").
+_FILENAMES: dict[str, str] = {}
+
 
 def _path_for(token: str) -> Path:
     p = _UPLOAD_DIR / f"{token}.xlsm"
@@ -57,6 +61,7 @@ async def upload(file: UploadFile = File(...)) -> dict:
     if not file.filename or not file.filename.lower().endswith((".xlsm", ".xlsx")):
         raise HTTPException(400, "Please upload an .xlsm soil analytical table.")
     token = uuid.uuid4().hex
+    _FILENAMES[token] = file.filename
     dest = _UPLOAD_DIR / f"{token}.xlsm"
     dest.write_bytes(await file.read())
     # Load-only: populate file-derived option lists for the UI selectors. The
@@ -146,10 +151,15 @@ def export(req: ExportRequest) -> Response:
 
 @app.post("/api/export-charts")
 def export_charts(req: ExportRequest) -> Response:
-    """Build the charts zip (Tier1_Charts/ + BG_Chloride/) from the last run."""
+    """Build the figures ZIP (CL_DELINEATION/ + BG_CHLORIDE/ + TIER1_GRAPHS/)
+    from the last run. Named after the uploaded Excel file with "_figures.zip"
+    in place of its extension; 404 when no figures were generated."""
     ctx = _get_or_run_ctx(req.token, req.params)
     buf = build_charts_zip(ctx)
-    filename = f"EBM_SST_Charts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    if buf is None:
+        raise HTTPException(404, "No figures were generated to export.")
+    original = _FILENAMES.get(req.token, "figures")
+    filename = f"{Path(original).stem}_figures.zip"
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",

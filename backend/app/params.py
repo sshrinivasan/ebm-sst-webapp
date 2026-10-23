@@ -84,12 +84,31 @@ PARAMS: list[dict] = [
     # group the max-exceedance-per-group table by either APEC or Subarea.
     {"name": "rosc_grouping_column", "label": "ROSC Grouping Column",
      "kind": "str", "control": "select", "tab": "exceedances",
-     "choices": ["APEC", "Subarea"], "default": "Subarea"},
+     "choices": ["APEC", "Subarea"], "default": "APEC"},
     # Exceedances tab: which chloride columns appear in the Tier 1 exceedances
     # table. Both or none can be selected (standard multiselect).
     {"name": "show_chloride_exceedances", "label": "Show Chloride Exceedances",
      "kind": "list", "control": "multiselect", "tab": "exceedances",
      "choices": ["mg/L", "mg/kg"], "default": ["mg/L"], "full": False},
+    # Justifications tab: the justified exceedances table (Tier 1 exceedances +
+    # Justified / Justification Reason columns) is surfaced as a static OUTPUT
+    # (justified_exceedances), computed by
+    # justifications.exceedance_justifications from the three inputs below.
+    # Chloride secondary limit for the "Low Risk"
+    # justification. The label unit switches with the SST flag (mg/L off,
+    # mg/kg on) in manifest.build_schema, matching how the threshold is
+    # compared (Chloride (mg/L) column off, Chloride (mg/kg) on).
+    {"name": "justification_cl_secondary_limit", "label": "Justification Cl secondary limit (mg/L)",
+     "kind": "number", "control": "number", "tab": "justifications", "default": None},
+    # Justifications tab: which salinity parameters (pH/EC/SAR) are eligible for
+    # justification. All selected by default.
+    {"name": "select_salinity_parameters", "label": "Select Salinity Parameters",
+     "kind": "list", "control": "multiselect", "tab": "justifications",
+     "choices": ["pH", "EC", "SAR"], "default": ["pH", "EC", "SAR"]},
+    # Justifications tab: allow the "Naturally Occurring" justification for
+    # chloride concentrations below 100 (mg/L / mg/kg). On by default.
+    {"name": "justify_100_mg_l", "label": "Justify < 100 mg/L",
+     "kind": "bool", "control": "toggle", "tab": "justifications", "default": True},
     {"name": "sst_flag", "label": "Site-specific (SST) enabled",
      "kind": "bool", "control": "toggle", "tab": "input_config", "default": False},
     {"name": "topsoil_depths", "label": "Topsoil / Subsoil depth intervals",
@@ -300,6 +319,81 @@ PARAMS: list[dict] = [
              "kind": "number", "control": "number", "tab": "bg_chloride"},
         )
     ],
+    # Surfer tab: borehole modifier -> classification lookup. Consumed by
+    # surfer_routine_output (surfer.py) when SST is off.
+    {"name": "surfer_bh_classification", "label": "Surfer Borehole Classification",
+     "kind": "table", "control": "table", "tab": "surfer",
+     "columns": [
+         {"key": "Modifier", "label": "Modifier", "control": "text"},
+         {"key": "Type", "label": "Type", "control": "text"},
+         {"key": "Surfer Classification", "label": "Surfer Classification", "control": "number"},
+     ],
+     "default": [
+         {"Modifier": "BH", "Type": "Borehole", "Surfer Classification": 1},
+         {"Modifier": "MW", "Type": "Monitoring Well", "Surfer Classification": 2},
+         {"Modifier": "HA", "Type": "Hand Auger", "Surfer Classification": 3},
+         {"Modifier": "TP", "Type": "Test Pit", "Surfer Classification": 4},
+         {"Modifier": "S", "Type": "Remediation", "Surfer Classification": 5},
+     ]},
+    # Surfer tab: borehole cutoff date (yyyy-mm-dd) used when compiling the
+    # Surfer input dataset. Treated as a string here; parsed in surfer.py.
+    {"name": "bh_cutoff_date", "label": "Borehole Data Cutoff Date",
+     "kind": "str", "control": "date", "tab": "surfer", "default": ""},
+    # Surfer tab: which chemical group the parameter-group depth intervals apply to.
+    {"name": "surfer_parameter_group", "label": "Surfer Parameter Group",
+     "kind": "str", "control": "select", "tab": "surfer",
+     "choices": ["Chloride (mg/kg)", "Sulphate (mg/kg)", "Sodium (mg/kg)",
+                 "Potassium (mg/kg)", "Chloride (mg/L)"],
+     "default": "Chloride (mg/kg)"},
+    # Surfer tab: per-figure depth intervals for the selected parameter group
+    # (8 standard Surfer figures; blank figures are skipped).
+    {"name": "surfer_parameter_group_depths", "label": "Surfer Parameter Group Depths",
+     "kind": "table", "control": "table", "tab": "surfer",
+     "columns": [
+         {"key": "Figure 1", "label": "Figure 1", "control": "text"},
+         {"key": "Figure 2", "label": "Figure 2", "control": "text"},
+         {"key": "Figure 3", "label": "Figure 3", "control": "text"},
+         {"key": "Figure 4", "label": "Figure 4", "control": "text"},
+         {"key": "Figure 5", "label": "Figure 5", "control": "text"},
+         {"key": "Figure 6", "label": "Figure 6", "control": "text"},
+         {"key": "Figure 7", "label": "Figure 7", "control": "text"},
+         {"key": "Figure 8", "label": "Figure 8", "control": "text"},
+     ],
+     "default": [
+         {"Figure 1": "0-99", "Figure 2": "0-1.5", "Figure 3": "1.5-99",
+          "Figure 4": "1.5-3", "Figure 5": "3-6", "Figure 6": "6-9",
+          "Figure 7": "", "Figure 8": ""},
+     ]},
+    # Surfer tab: standard depth intervals per chemical group for the
+    # standard Surfer figure set (Figure 1..4; blank cells are skipped).
+    {"name": "surfer_standard_figure_depths", "label": "Surfer Standard Figure Depths",
+     "kind": "table", "control": "table", "tab": "surfer",
+     "columns": [
+         {"key": "Chemical Group", "label": "Chemical Group", "control": "text"},
+         {"key": "Figure 1", "label": "Figure 1", "control": "text"},
+         {"key": "Figure 2", "label": "Figure 2", "control": "text"},
+         {"key": "Figure 3", "label": "Figure 3", "control": "text"},
+         {"key": "Figure 4", "label": "Figure 4", "control": "text"},
+     ],
+     "default": [
+         {"Chemical Group": "Tier 1 Salinity", "Figure 1": "0-99", "Figure 2": "0-1.5",
+          "Figure 3": "1.5-3", "Figure 4": ""},
+         {"Chemical Group": "Site-Specific Metals", "Figure 1": "0-99", "Figure 2": "0-1.5",
+          "Figure 3": "", "Figure 4": ""},
+         {"Chemical Group": "Site-Specific Organics", "Figure 1": "0-99",
+          "Figure 2": "", "Figure 3": "", "Figure 4": ""},
+         {"Chemical Group": "Site-Specific Salinity", "Figure 1": "1.5-99",
+          "Figure 2": "", "Figure 3": "", "Figure 4": ""},
+         {"Chemical Group": "All Site-Specific Exceedances", "Figure 1": "0-99",
+          "Figure 2": "", "Figure 3": "", "Figure 4": ""},
+     ]},
+    # Surfer tab: whether the depth interval bounds for the Surfer figure
+    # depths are inclusive. Include left (>= lower) and/or include right
+    # (<= upper). Off means exclusive on that side (> lower / < upper).
+    {"name": "surfer_include_left", "label": "Include Lower Depth Bound",
+     "kind": "bool", "control": "toggle", "tab": "surfer", "default": True},
+    {"name": "surfer_include_right", "label": "Include Upper Depth Bound",
+     "kind": "bool", "control": "toggle", "tab": "surfer", "default": True},
 ]
 
 # Notebook params that have defaults but no UI control yet. Kept server-side so

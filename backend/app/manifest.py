@@ -15,6 +15,7 @@ NAV = [
     {"id": "background", "title": "Background & Guidelines", "icon": "table"},
     {"id": "borehole", "title": "Borehole Characteristics", "icon": "table"},
     {"id": "exceedances", "title": "Exceedances", "icon": "alert"},
+    {"id": "justifications", "title": "Justifications", "icon": "table"},
     {"id": "npp", "title": "NPP", "icon": "table"},
     {"id": "tds", "title": "TDS", "icon": "table"},
     {"id": "tier1_graphs", "title": "Tier 1 Graphs", "icon": "chart"},
@@ -24,6 +25,7 @@ NAV = [
     {"id": "texture", "title": "Texture", "icon": "table"},
     {"id": "95_percentile", "title": "95th Percentile", "icon": "table"},
     {"id": "report", "title": "AI Report", "icon": "chart"},
+    {"id": "surfer", "title": "Surfer", "icon": "table"},
 ]
 
 # tables
@@ -37,8 +39,10 @@ OUTPUTS = [
     {"var": "borehole_characteristics", "label": "Borehole Characteristics", "tab": "borehole"},
     {"var": "borehole_data", "label": "Borehole Data", "tab": "borehole"},
     {"var": "tier1_exceedances", "label": "Tier 1", "tab": "exceedances"},
+    {"var": "justified_exceedances", "label": "Justified Exceedances", "tab": "justifications"},
+    {"var": "site_specific_tier1_exceedances", "label": "Site Specific Exceedances", "tab": "exceedances"},
     {"var": "site_specific_exceedances", "label": "Site-Specific", "tab": "exceedances"},
-    {"var": "max_exceedances_per_subarea", "label": "Max Exceedances per Subarea", "tab": "exceedances"},
+    {"var": "max_exceedances_per_subarea", "label": "Max Exceedances per Group", "tab": "exceedances"},
     {"var": "depth_specific_tier1", "label": "Depth Specific Tier 1 Exceedances", "tab": "exceedances"},
     {"var": "npp_test_results", "label": "Sulphate Profile Interpretation", "tab": "npp"},
     {"var": "npp_numerical_ref_info", "label": "NPP Numerical Reference Info", "tab": "npp"},
@@ -52,6 +56,8 @@ OUTPUTS = [
     {"var": "tds_test_results", "label": "TDS Practitioner Notes", "tab": "tds"},
     {"var": "additional_guidelines_df", "label": "Additional Guidelines", "tab": "sst_charts"},
     {"var": "chloride_plot_config", "label": "Chloride Plot Config", "tab": "sst_charts"},
+    # Surfer tab: the compiled Surfer input table (surfer_output_display).
+    {"var": "surfer_output", "label": "Surfer Output", "tab": "surfer"},
 ]
 
 # Chart figures (PNG data URIs) keyed by var, grouped onto a tab. The producing
@@ -144,14 +150,15 @@ SST_PARAMS = {
     "p95_x_max", "p95_y_max",
 }
 
-
 def build_schema(sst_flag: bool = True) -> dict:
     """Build the presentation schema, optionally filtering out the SST analysis.
 
     When ``sst_flag`` is False, the SST tabs, outputs, charts, dynamic entries,
     and params are removed so the frontend hides them entirely. The Exceedances
     tab keeps Tier 1 (tier1_exceedances) — only the Site-Specific table is
-    removed.
+    removed. The Surfer tab is available in BOTH modes (it consumes the SST
+    site-specific exceedances when SST is enabled, the Tier-1 site-specific
+    frame otherwise).
     """
     # example = default so the frontend prefills the control.
     inputs = []
@@ -160,9 +167,18 @@ def build_schema(sst_flag: bool = True) -> dict:
         # Chloride exceedance units default: mg/kg for SST sites, mg/L otherwise.
         if p["name"] == "show_chloride_exceedances":
             inp["example"] = ["mg/kg"] if sst_flag else ["mg/L"]
+        # Justification secondary-limit label follows the same unit convention:
+        # mg/L when SST is off, mg/kg when SST is on.
+        if p["name"] == "justification_cl_secondary_limit":
+            inp["label"] = (
+                "Justification Cl secondary limit (mg/kg)" if sst_flag
+                else "Justification Cl secondary limit (mg/L)"
+            )
         inputs.append(inp)
 
     if sst_flag:
+        # SST enabled: the Surfer tab is available in BOTH modes, so nothing is
+        # removed here (the SST sets below only apply when sst_flag is False).
         return {
             "nav": NAV,
             "tabs": _leaves(NAV),

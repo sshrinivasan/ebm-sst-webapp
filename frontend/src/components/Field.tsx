@@ -19,7 +19,7 @@ function optionsFor(spec: InputSpec, options: OptionMap): { value: string; label
 }
 
 export function Field({
-  spec, value, options, params, onChange, resetValue,
+  spec, value, options, params, onChange, resetValue, hint,
 }: {
   spec: InputSpec;
   value: unknown;
@@ -27,6 +27,7 @@ export function Field({
   params: Params;
   onChange: (v: unknown) => void;
   resetValue?: unknown;
+  hint?: string;
 }) {
   const opts = optionsFor(spec, options);
   const full = spec.full ?? (spec.control === "multiselect" || spec.control === "file" || spec.control === "table" || spec.control === "subarea_assigner");
@@ -104,6 +105,7 @@ export function Field({
         )}
       </div>
       {control}
+      {hint && <div className="hint">{hint}</div>}
     </div>
   );
 }

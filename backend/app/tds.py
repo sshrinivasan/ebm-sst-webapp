@@ -1,3 +1,5 @@
+import re
+
 from .context import Context, InputValidationError
 import pandas as pd
 
@@ -188,13 +190,15 @@ def tds_analysis(ctx: Context) -> Context:
 
 
 def _parse_depth_range(depth_text):
+    # Depth may be a plain interval ("0.0-0.3") or a labelled default row
+    # ("subsoil 1.5-6.0 (default)") — extract the numeric bounds either way.
     text = str(depth_text).strip().replace("–", "-").replace(">", "").replace("<", "")
-    parts = [p for p in text.split("-") if p.strip() != ""]
+    numbers = re.findall(r"\d+(?:\.\d+)?", text)
     try:
-        if len(parts) >= 2:
-            return float(parts[0]), float(parts[1])
-        if len(parts) == 1:
-            return float(parts[0]), float("inf")
+        if len(numbers) >= 2:
+            return float(numbers[0]), float(numbers[1])
+        if len(numbers) == 1:
+            return float(numbers[0]), float("inf")
     except ValueError:
         pass
     return None, None

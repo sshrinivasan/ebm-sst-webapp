@@ -34,7 +34,7 @@ export function ProfileChartPanel({ chartKey, title, xMaxParam, yMaxParam, schem
   const hasConfig = showConfig && (xMax || yMax);
 
   return (
-    <div className={`card chart-card${cardClassName ? ` ${cardClassName}` : ""}`}>
+    <div className={`card chart-card profile-chart-card${cardClassName ? ` ${cardClassName}` : ""}`}>
       <div className="card-head"><div className="card-title">{title}</div></div>
       {hasConfig && (
         <div className="profile-chart-config">

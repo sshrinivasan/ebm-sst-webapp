@@ -100,8 +100,17 @@ def texture_analysis(ctx: Context) -> Context:
         soil_data_filtered[["particle_size_sand", "particle_size_silt", "particle_size_clay", "particle_size_75_micron_sieve_ret"]].notna().any(axis=1)
     ]
     texture_df = texture_df[wanted_columns]
-    # TODO: Update this to keep all samples where any ctexture column has a number
+    # TODO: Update this to keep all samples where any texture column has a number
     texture_df.sort_values(by=['z'], inplace=True)
+
+    # Coerce to numeric so blank cells (None from the loader) become NaN and
+    # pd.cut below doesn't fail comparing None values.
+    texture_df["particle_size_clay"] = pd.to_numeric(
+        texture_df["particle_size_clay"], errors="coerce"
+    )
+    texture_df["general_inorganics_saturation"] = pd.to_numeric(
+        texture_df["general_inorganics_saturation"], errors="coerce"
+    )
 
     texture_df["clay_content"] = pd.cut(
     texture_df["particle_size_clay"],
@@ -220,6 +229,8 @@ def saturation_profile(ctx: Context) -> Context:
     scatter_ax.set_xlim(0, 100)
     scatter_ax.set_ylim(0, 100)
     scatter_fig.tight_layout()
-    ctx.charts["sand_clay_scatter"] = _fig_to_data_uri(scatter_fig)
+    # The scatter is not a profile chart: keep its tight-cropped canvas (the
+    # _fig_to_data_uri default is now the fixed-canvas path for profiles).
+    ctx.charts["sand_clay_scatter"] = _fig_to_data_uri(scatter_fig, tight=True)
 
     return ctx

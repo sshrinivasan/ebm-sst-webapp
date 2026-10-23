@@ -21,9 +21,14 @@ from .loader import (
 )
 from .ec_sar_rating import validate_topsoil_depths, compute_ec_sar_ratings
 from .background_guidelines import compute_scarg_guidelines
-from .borehole_stats import filter_borehole_data
-from .tier1_exceedances import tier1_exceedances, depth_specific_tier1_exceedances
+from .borehole_stats import filter_borehole_data, borehole_rationale
+from .tier1_exceedances import (
+    tier1_exceedances,
+    depth_specific_tier1_exceedances,
+    site_specific_tier1_exceedances,
+)
 from .sst_exceedances import sst_exceedances
+from .justifications import exceedance_justifications
 from .rosc import rosc_exceedances
 from .tier1_charts import tier1_charts, tier1_variable_charts
 from .bg_chloride import bg_chloride_charts
@@ -33,6 +38,7 @@ from .texture import texture_analysis, saturation_profile
 from .tds import tds_analysis, tds_tests
 from .percentile_95 import ninetyfifth_percentile
 from .npp import npp_analysis, npp_sulphate_tests
+from .surfer import surfer_routine_output
 
 def _clean_scalar(v: Any) -> Any:
     if v is None or v is pd.NA:
@@ -112,14 +118,19 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         if not _scarg_df.empty:
             ctx.frames["scarg_guidelines_df"] = _scarg_df[["Depth", "EC Guideline", "SAR Guideline"]].reset_index(drop=True)
     ctx = filter_borehole_data(ctx)
+    ctx = borehole_rationale(ctx)
     ctx = tier1_exceedances(ctx)
+    ctx = site_specific_tier1_exceedances(ctx)
     ctx = depth_specific_tier1_exceedances(ctx)
+    # Justifications: editable Tier 1 exceedances + salinity justification rules.
+    # Runs in both SST modes (the frame it reads is always computed above).
+    ctx = exceedance_justifications(ctx)
     if sst_enabled:
         ctx = npp_analysis(ctx)
         ctx = npp_sulphate_tests(ctx)
         ctx = sst_exceedances(ctx)
     # ROSC runs after the SST block so it can use the Site-Specific exceedances
-    # (all_exceedances_df) when SST is enabled, falling back to Tier 1 otherwise.
+    # (site_specific_sst_exceedances_df) when SST is enabled, falling back to Tier 1 otherwise.
     ctx = rosc_exceedances(ctx)
     ctx = tier1_charts(ctx)
     ctx = tier1_variable_charts(ctx)
@@ -133,6 +144,11 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ctx = ninetyfifth_percentile(ctx)
         ctx = seed_sst_chloride(ctx)
         ctx = sst_chloride_charts(ctx)
+
+    # Surfer analysis runs for BOTH SST and non-SST sites. Under SST it consumes
+    # the SST site-specific exceedances (site_specific_sst_exceedances_df); otherwise it falls
+    # back to the Tier-1 site-specific frame (see surfer.py).
+    ctx = surfer_routine_output(ctx)
 
     # future: ctx = texture_split(ctx); ...
 
@@ -155,7 +171,9 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ("borehole_characteristics", "borehole_characteristics"),
         ("borehole_data", "borehole_data"),
         ("tier1_exceedances_display_df", "tier1_exceedances"),
-        ("all_exceedances_display_df", "site_specific_exceedances"),
+        ("justified_exceedances_display_df", "justified_exceedances"),
+        ("site_specific_tier1_exceedances_display_df", "site_specific_tier1_exceedances"),
+        ("site_specific_sst_exceedances_display_df", "site_specific_exceedances"),
         ("max_exceedances_per_subarea_df", "max_exceedances_per_subarea"),
         ("tier1_shallow_param_summary", "tier1_shallow_param_summary"),
         ("tier1_deep_param_summary", "tier1_deep_param_summary"),
@@ -173,6 +191,7 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ("borehole_sa_df", "borehole_sa_df"),
         ("additional_guidelines_df", "additional_guidelines_df"),
         ("chloride_plot_config", "chloride_plot_config"),
+        ("surfer_output_display", "surfer_output"),
     ]:
         if frame_key in ctx.frames:
             ctx.outputs[out_key] = df_to_records(ctx.frames[frame_key])

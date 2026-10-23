@@ -12,6 +12,8 @@ background_appendix_sheet_dfs.
 """
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 
 from .context import Context
@@ -194,12 +196,22 @@ def compute_scarg_guidelines(ctx: Context) -> Context:
         ec_report_column_name = "{0} {1}-{2}".format(soil_type, top, bottom)
         sar_report_column_name = "{0} {1}-{2}".format(soil_type, top, bottom)
 
-        # Filter soil_data_filtered for z within top-bottom (inclusive) and comments in Background list
-        # Special case for topsoil vs subsoil
+        # Filter soil_data_filtered for z within the interval and comments in
+        # Background list. Boundary semantics:
+        #   Topsoil rows: both ends excluded (top < z < bottom) -- a sample at
+        #     exactly the top (e.g. z = 0) is not in the topsoil stats.
+        #   Subsoil rows: top included, bottom excluded (top <= z < bottom) --
+        #     a sample exactly on a shared boundary lands in the deeper row, so
+        #     no sample is counted twice.
+        #   Deepest interval: also includes its bottom (top <= z <= bottom) so
+        #     samples at the very deepest depth are still captured.
+        is_deepest = idx == len(topsoil_depths_validated) - 1
         if str(soil_type).strip() == "Topsoil":
             depth_mask = (soil_data_filtered["z"] > top) & (soil_data_filtered["z"] < bottom)
-        else:
+        elif is_deepest:
             depth_mask = (soil_data_filtered["z"] >= top) & (soil_data_filtered["z"] <= bottom)
+        else:
+            depth_mask = (soil_data_filtered["z"] >= top) & (soil_data_filtered["z"] < bottom)
 
         filtered_by_depth_df = soil_data_filtered[
             depth_mask &
@@ -236,8 +248,10 @@ def compute_scarg_guidelines(ctx: Context) -> Context:
             outlier_calc = ec_mean_val + 2 * ec_stddev_val
 
             # Special outlier for analysis for 1-1.5 depth only if SST
-            # Print out to sheet without outliers for interval 1-1.5        
-            if (top == 1.0) and (bottom == 1.5):
+            # Print out to sheet without outliers for interval 1-1.5.
+            # When SST is off, 1-1.5 uses the generic path below (raw rows,
+            # no per-sample averaging), matching the reference implementation.
+            if (top == 1.0) and (bottom == 1.5) and sst_flag:
                 # Average duplicate rows in this interval only
                 numeric_columns = [
                     col for col in filtered_by_depth_df.select_dtypes(include="number").columns
@@ -630,4 +644,75 @@ def compute_scarg_guidelines(ctx: Context) -> Context:
     ctx.exports["ec_report_dict"] = ec_report_dict
     ctx.exports["sar_report_dict"] = sar_report_dict
     ctx.exports["background_appendix_sheet_dfs"] = background_appendix_sheet_dfs
+    # Fill EC/SAR guidelines for depth intervals with no background data, using
+    # soil-type defaults. Only scarg_guidelines_df is extended — the summary /
+    # report / per-interval background frames above are built from background
+    # data only and stay unchanged.
+    ctx = apply_default_scarg_guidelines(ctx)
+    return ctx
+
+
+# --- SCARG default-guideline fallback ---------------------------------------
+# Default EC/SAR guidelines used when a depth interval has no background data,
+# keyed by lowercased soil type (case-insensitive: "Subsoil" == "subsoil").
+_DEFAULT_SCARG_EC_SAR = {"topsoil": (2.0, 4.0), "subsoil": (3.0, 4.0)}
+
+
+def scarg_depth_bounds(text) -> tuple[float, float] | None:
+    """(top, bottom) numeric bounds of a SCARG Depth value.
+
+    Handles both the plain interval ("0.0-0.3") and labelled default rows
+    ("subsoil 1.5-6.0 (default)"). Returns None when no numeric pair is found.
+    Depths are non-negative, so the separator hyphen is never treated as a sign.
+    """
+    numbers = re.findall(r"\d+(?:\.\d+)?", str(text))
+    if len(numbers) >= 2:
+        try:
+            return float(numbers[0]), float(numbers[1])
+        except ValueError:
+            pass
+    return None
+
+
+def apply_default_scarg_guidelines(ctx: Context) -> Context:
+    """Add default SCARG EC/SAR guidelines for intervals without background data.
+
+    Every interval in the topsoil/subsoil depth input that has no
+    background-derived guideline gets one from ``_DEFAULT_SCARG_EC_SAR`` by its
+    soil type. Default rows are labelled "{type} {top}-{bottom} (default)" and
+    the table stays sorted by interval top depth. Intervals with background data
+    keep their computed values; defaults only fill the gaps. The SCARG Guideline
+    Summary / EC & SAR report / per-interval background sheets are not affected
+    (they are built before this runs, from background data only).
+    """
+    guidelines = ctx.frames.get("scarg_guidelines_df")
+    intervals = ctx.frames.get("topsoil_depths_validated")
+    if guidelines is None or intervals is None or intervals.empty:
+        return ctx
+
+    guidelines = guidelines.copy()
+    existing = {b for b in (scarg_depth_bounds(d) for d in guidelines["Depth"]) if b is not None}
+
+    default_rows = []
+    for _, interval_row in intervals.iterrows():
+        top = float(interval_row["top"])
+        bottom = float(interval_row["bottom"])
+        soil_type = str(interval_row["type"]).strip().lower()
+        if any(abs(top - e[0]) < 1e-6 and abs(bottom - e[1]) < 1e-6 for e in existing):
+            continue
+        ec, sar = _DEFAULT_SCARG_EC_SAR.get(soil_type, (2.0, 4.0))
+        default_rows.append({
+            "Depth": "{0} {1:.1f}-{2:.1f} (default)".format(soil_type, top, bottom),
+            "EC Guideline": ec,
+            "SAR Guideline": sar,
+        })
+
+    if not default_rows:
+        return ctx
+
+    merged = pd.concat([guidelines, pd.DataFrame(default_rows)], ignore_index=True)
+    # Keep the table sorted by interval top depth (defaults + background rows).
+    merged["_top"] = merged["Depth"].map(lambda d: (scarg_depth_bounds(d) or (float("inf"), 0.0))[0])
+    merged = merged.sort_values("_top", kind="mergesort").drop(columns=["_top"]).reset_index(drop=True)
+    ctx.frames["scarg_guidelines_df"] = merged
     return ctx

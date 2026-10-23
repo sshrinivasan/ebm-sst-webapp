@@ -226,6 +226,19 @@ def _fig_to_data_uri(fig) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.read()).decode("ascii")
 
 
+def _store_figure(fig, ctx: Context, chart_key: str, zip_path: str | None = None) -> None:
+    """Store a figure for the app (``ctx.charts``) and, when ``zip_path`` is
+    given, for the figures ZIP (``ctx.exports['figure_files']``) at 150 dpi /
+    tight bounding box / white background per the export spec. The export PNG is
+    saved BEFORE ``_fig_to_data_uri`` closes the figure."""
+    if zip_path:
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+        buf.seek(0)
+        ctx.exports.setdefault("figure_files", {})[zip_path] = buf.getvalue()
+    ctx.charts[chart_key] = _fig_to_data_uri(fig)
+
+
 def bg_chloride_charts(ctx: Context) -> Context:
     """BG Chloride tab: 3 identical user-driven scatter plots (see params.py /
     manifest.py 'bg_chloride' tab). Each plot n reads its 8 axis controls
@@ -259,7 +272,18 @@ def bg_chloride_charts(ctx: Context) -> Context:
             ctx.notify(str(e), "warning", "bg_chloride_charts")
             continue
 
-        ctx.charts[f"bg_chloride_plot_{n}"] = _fig_to_data_uri(fig)
+        x_args = (
+            ctx.params.get(f"plot{n}_x_axis_metric1"),
+            ctx.params.get(f"plot{n}_x_axis_metric2"),
+            ctx.params.get(f"plot{n}_x_operation") or "A only",
+        )
+        y_args = (
+            ctx.params.get(f"plot{n}_y_axis_metric1"),
+            ctx.params.get(f"plot{n}_y_axis_metric2"),
+            ctx.params.get(f"plot{n}_y_operation") or "A only",
+        )
+        _store_figure(fig, ctx, f"bg_chloride_plot_{n}",
+                      f"BG_CHLORIDE/{_bg_figure_name(x_args, y_args)}")
 
 
     # BG Chloride data

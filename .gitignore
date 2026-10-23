@@ -25,6 +25,10 @@ dist/
 # Build / logs
 *.log
 
+# Local env / secrets
+.env
+.env.*
+
 # Large Excel data files (user-uploaded at runtime, not source)
 # Note: tests/fixtures/sample_soil_table.xlsm is INTENTIONALLY kept.
 backend/*.xlsm

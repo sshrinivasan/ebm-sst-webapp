@@ -1,6 +1,8 @@
 from __future__ import annotations
+import numpy as np
 import pandas as pd
 from .context import Context, InputValidationError
+from .tier1_exceedances import chemical_group_columns_maps
 
 borehole_header_columns = {
     'sample_id': 'Location',
@@ -218,5 +220,95 @@ def filter_borehole_data(ctx: Context) -> Context:
     return ctx
 
 
+RATIONALE_FLAG_GROUPS = {
+    "Salinity": ["chloride", "ec", "sar", "ph"],
+    "Metals": ["metals", "boron", "barium"],
+    "PHC": ["phc"],
+    "PAH": ["pah"],
+}
+_copc_input = [
+    "PHC", "PAH", "glycol", "methanol", "phenol", "boron", "chloride", "EC", "SAR", "pH",
+    "PHC", "PAH", "metals", "chloride", "methanol",
+    "PHC", "PAH", "barium", "Metals", "ethylene glycol",
+]
 
 
+def borehole_rationale(ctx: Context) -> Context:
+    soil_data_filtered = ctx.frames["soil_data_filtered"]
+
+    copc_list = list(dict.fromkeys(c.strip().lower() for c in _copc_input))
+    chemical_group_map, chemical_group_to_columns_map = chemical_group_columns_maps(ctx)
+
+
+    copc_to_columns_map = {
+        "phc": chemical_group_to_columns_map["Hydrocarbons"],
+        "pah": chemical_group_to_columns_map["PAHs"],
+        "glycol": [c for c in chemical_group_to_columns_map.get("Other Organics", []) if "glycol" in c],
+        "phenol": [c for c in chemical_group_to_columns_map.get("Other Organics", []) if "phenol" in c],
+        "boron": [c for c in chemical_group_to_columns_map["Metals"] if "boron" in c],
+        "chloride": chemical_group_to_columns_map["Chloride"],
+        "ec": ["general_inorganics_ec_ds_m"],
+        "sar": ["general_inorganics_sar"],
+        "ph": ["general_inorganics_ph"],
+        "metals": chemical_group_to_columns_map["Metals"],
+        "methanol": ["other_organics_methanol_mg_kg"],
+        "barium": [c for c in chemical_group_to_columns_map["Metals"] if "barium" in c or "barite" in c],
+        "ethylene glycol": ["other_organics_ethylene_glycol_mg_kg"],
+    }
+
+    copcs_measured = []
+    for _copc in copc_list:
+        _present = [c for c in copc_to_columns_map.get(_copc, []) if c in soil_data_filtered.columns]
+        if not _present:
+            continue
+        _vals = soil_data_filtered[_present].replace(r"^\s*$", np.nan, regex=True)
+        if _vals.notna().any().any():
+            copcs_measured.append(_copc)
+
+    # Exposed for the Site Summary exporter sheet.
+    ctx.options["copcs_measured"] = list(copcs_measured)
+
+    # Summary columns and the COPCs (from copc_list) that roll up into each one.
+    # Anything measured but not listed here goes into the "Other" column.
+
+    def _measured_copcs(df):
+        """Return the COPCs from copc_list that have at least one non-blank value in df."""
+        values = df.replace(r"^\s*$", np.nan, regex=True)
+        return [
+            copc for copc in copc_list
+            if values.reindex(columns=copc_to_columns_map.get(copc, [])).notna().any().any()
+        ]
+
+
+    def _rationale_row(apec, group):
+        """Build one summary row for an APEC: boreholes, Yes/No flags per group, and other COPCs."""
+        measured = _measured_copcs(group)
+        row = {
+            # Unique borehole IDs in their original order
+            "Boreholes": ", ".join(group["sample_id"].dropna().astype(str).unique()),
+            "APEC": apec,
+        }
+        # Yes if any COPC belonging to the summary column was measured
+        for col, members in RATIONALE_FLAG_GROUPS.items():
+            row[col] = "Yes" if set(members) & set(measured) else "No"
+        # Remaining measured COPCs not covered by a summary column
+        flagged = {c for members in RATIONALE_FLAG_GROUPS.values() for c in members}
+        row["Other"] = ", ".join(c for c in measured if c not in flagged)
+        return row
+
+
+    # Treat blank or missing APEC values as "Unassigned" so those boreholes are still reported
+    apec_labels = (
+        soil_data_filtered["apec"].astype("string").str.strip().replace("", pd.NA).fillna("Unassigned")
+    )
+
+    # One row per APEC
+    borehole_rationale_df = pd.DataFrame(
+        [_rationale_row(apec, group) for apec, group in soil_data_filtered.groupby(apec_labels, sort=False)],
+        columns=["Boreholes", "APEC", *RATIONALE_FLAG_GROUPS, "Other"],
+    )
+
+    # Stored on ctx for the Excel export (Borehole Rationale sheet). Not
+    # surfaced in the UI schema.
+    ctx.frames["borehole_rationale_df"] = borehole_rationale_df
+    return ctx

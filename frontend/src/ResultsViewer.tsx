@@ -7,7 +7,7 @@ import { FormGrid, CollapsibleInputs } from "./components/CollapsibleInputs";
 import { ProfileChartPanel } from "./components/ProfileChartPanel";
 import { MarkdownNotes } from "./components/MarkdownNotes";
 import {
-  IcSliders, IcTable, IcChart, IcAlert, IcMap, IcRefresh, IcInbox,
+  IcSliders, IcTable, IcChart, IcAlert, IcMap, IcRefresh, IcInbox, IcChevron,
 } from "./components/icons";
 
 const ICONS: Record<string, (p: { className?: string }) => JSX.Element> = {
@@ -66,6 +66,7 @@ export default function ResultsViewer({
   const [textureSub, setTextureSub] = useState<"tables" | "profile">("tables");
   const [nppSub, setNppSub] = useState<"tables" | "charts">("tables");
   const [nppTable, setNppTable] = useState<string>("npp_test_results");
+  const [clDelConfigOpen, setClDelConfigOpen] = useState(false);
   const [p95Subarea, setP95Subarea] = useState<string | null>(null);
   const [p95Sub, setP95Sub] = useState<string>("subsoil");
   const [p95View, setP95View] = useState<"data" | "subareas">("data");
@@ -250,7 +251,7 @@ export default function ResultsViewer({
             </div>
           )}
 
-          {/* ===== Chloride Delineation (Inputs panel + shared Plot config + one profile chart per 15-BH batch) ===== */}
+          {/* ===== Chloride Delineation (Inputs panel + ONE shared Plot config bar + one profile chart per 15-BH batch) ===== */}
           {active === "cl_delineation" && (
             <div className="stack fade-in">
               {!result && <NeedFile />}
@@ -260,9 +261,28 @@ export default function ResultsViewer({
                   params={params} options={options} setParam={setParam} />
               )}
               {result && (
-                <CollapsibleInputs title="Plot config"
-                  inputs={schema.inputs.filter((i) => ["cl_delineation_x_max", "cl_delineation_y_max"].includes(i.name))}
-                  params={params} options={options} setParam={setParam} />
+                <div className="profile-chart-config">
+                  <button className="profile-chart-config-toggle" onClick={() => setClDelConfigOpen(!clDelConfigOpen)}>
+                    <span>Plot config</span>
+                    <IcChevron className={`profile-chart-config-chev ${clDelConfigOpen ? "open" : ""}`} />
+                  </button>
+                  {clDelConfigOpen && (
+                    <div className="profile-chart-controls">
+                      <div className="profile-chart-axis">
+                        {(() => {
+                          const xMax = schema.inputs.find((i) => i.name === "cl_delineation_x_max");
+                          const yMax = schema.inputs.find((i) => i.name === "cl_delineation_y_max");
+                          return (
+                            <>
+                              {xMax && <Field spec={xMax} value={params[xMax.name]} options={options} params={params} onChange={(v) => setParam(xMax.name, v)} />}
+                              {yMax && <Field spec={yMax} value={params[yMax.name]} options={options} params={params} onChange={(v) => setParam(yMax.name, v)} />}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               {result && (
                 <div className="chart-row">
@@ -271,7 +291,6 @@ export default function ResultsViewer({
                     .map((key) => (
                       <ProfileChartPanel key={key} chartKey={key}
                         title={`Chloride Profile ${key.slice("cl_delineation_profile_".length)}`}
-                        xMaxParam="cl_delineation_x_max" yMaxParam="cl_delineation_y_max"
                         schema={schema} params={params} options={options} setParam={setParam} result={result}
                         showConfig={false} />
                     ))}
@@ -493,6 +512,9 @@ export default function ResultsViewer({
                       "EC Guideline": String(r["EC Guideline"] ?? ""),
                       "SAR Guideline": String(r["SAR Guideline"] ?? ""),
                     })),
+                    // Reset the editable Justifications table to the computed
+                    // Tier 1 exceedances + justification columns, clearing the
+                    // user-override flag (the shape matches the doRun prefill).
                   }} />
               )}
               {result && allOutputs.length > 1 && (
@@ -693,8 +715,7 @@ function SstProfileSubtab({ prefix, title, inputs, schema, params, options, setP
               return (
                 <ProfileChartPanel key={key} chartKey={key} title={`${title} ${subarea}`}
                   xMaxParam={xMax?.name} yMaxParam={yMax?.name}
-                  schema={schema} params={params} options={options} setParam={setParam} result={result}
-                  cardClassName="sst-cl-chart-card" />
+                  schema={schema} params={params} options={options} setParam={setParam} result={result} />
               );
             })}
           {Object.keys(result?.charts ?? {}).filter((k) => k.startsWith(prefix)).length === 0 && (

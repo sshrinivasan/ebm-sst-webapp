@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from app.pipeline import run
+from conftest import EXTENDED_TOPSOIL_DEPTHS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE = FIXTURES / "sample_soil_table.xlsm"
@@ -34,7 +35,7 @@ def _cell_eq(a, b) -> bool:
 
 @pytest.fixture(scope="module")
 def frames():
-    return run(str(SAMPLE), {"sheet_name": "Soil Table"}).frames
+    return run(str(SAMPLE), {"sheet_name": "Soil Table", "topsoil_depths": EXTENDED_TOPSOIL_DEPTHS}).frames
 
 
 @pytest.mark.parametrize("frame_key,fixture", CASES)
