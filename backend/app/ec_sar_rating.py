@@ -58,6 +58,24 @@ def validate_topsoil_depths(ctx: Context) -> Context:
     if gaps:
         raise InputValidationError("Depth intervals must be contiguous, with no gaps or overlaps.")
 
+    # The deepest interval must cover the deepest sample in the soil table. The
+    # deepest interval includes its bottom (top <= z <= bottom), so a sample
+    # exactly at the deepest bottom is still covered; only z > deepest_bottom is
+    # uncovered (and would be silently dropped from every depth-band statistic).
+    soil = ctx.frames.get("soil_data_filtered")
+    if soil is not None and not soil.empty:
+        z = pd.to_numeric(soil["z"], errors="coerce")
+        min_z = z.min()
+        max_z = z.max()
+        deepest_bottom = float(df["bottom"].max())
+        if pd.notna(max_z) and max_z > deepest_bottom:
+            raise InputValidationError(
+                f"The soil table spans {min_z:g} m to {max_z:g} m, but the "
+                f"topsoil/subsoil depth table only extends to {deepest_bottom:g} m. "
+                f"Extend the last interval (or add a deeper one) so the table covers "
+                f"the deepest sample at {max_z:g} m."
+            )
+
     ctx.frames["topsoil_depths_validated"] = df
     return ctx
 

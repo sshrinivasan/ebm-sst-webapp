@@ -252,11 +252,11 @@ export default function WizardApp() {
     if (!token) return;
     setDownloadingCharts(true);
     try {
-      const blob = await exportCharts(token, cleanParams(params));
+      const { blob, filename } = await exportCharts(token, cleanParams(params));
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `EBM_SST_Charts_${new Date().toISOString().replace(/[:.]/g, "-")}.zip`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -476,6 +476,15 @@ function ConfigureStep({ schema, params, options, setParam, running, onRun, onBa
   const sst = shared.filter((i) => i.group === "sst");
   const common = shared.filter((i) => i.group !== "sst");
 
+  // Tell the user what depth range the topsoil/subsoil table must cover, so
+  // they know to extend it when the file has deeper samples than the default.
+  const zMin = options["z_min"];
+  const zMax = options["z_max"];
+  const depthHint = (zMin != null && zMax != null)
+    ? `Soil data spans ${zMin} m to ${zMax} m — the table must cover the deepest sample.`
+    : undefined;
+  const hints = depthHint ? { topsoil_depths: depthHint } : undefined;
+
   return (
     <div className="wz-panel fade-in">
       <div className="wz-panel-head">
@@ -491,7 +500,7 @@ function ConfigureStep({ schema, params, options, setParam, running, onRun, onBa
               <div className="card-meta">Apply to every workflow</div>
             </div>
             <div style={{ padding: 24 }}>
-              <FormGrid inputs={common} params={params} options={options} setParam={setParam} />
+              <FormGrid inputs={common} params={params} options={options} setParam={setParam} hints={hints} />
             </div>
           </div>
         )}
@@ -502,7 +511,7 @@ function ConfigureStep({ schema, params, options, setParam, running, onRun, onBa
               <div className="card-meta">SST analysis</div>
             </div>
             <div style={{ padding: 24 }}>
-              <FormGrid inputs={sst} params={params} options={options} setParam={setParam} />
+              <FormGrid inputs={sst} params={params} options={options} setParam={setParam} hints={hints} />
             </div>
           </div>
         )}
@@ -671,13 +680,15 @@ function Notices({ messages }: { messages?: Notice[] }) {
   );
 }
 
-function FormGrid({ inputs, params, options, setParam }: {
+function FormGrid({ inputs, params, options, setParam, hints }: {
   inputs: InputSpec[]; params: Params; options: OptionMap; setParam: (n: string, v: unknown) => void;
+  hints?: Record<string, string>;
 }) {
   return (
     <div className="form-grid">
       {inputs.map((inp) => (
         <Field key={inp.name} spec={inp} value={params[inp.name]} options={options} params={params}
+          hint={hints?.[inp.name]}
           onChange={(v) => setParam(inp.name, v)} />
       ))}
     </div>

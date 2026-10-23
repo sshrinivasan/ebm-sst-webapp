@@ -62,6 +62,26 @@ def load(ctx: Context) -> Context:
     ctx.frames["soil_sheet_raw"] = raw_sheet       # reused by read_sst_guidelines
     _sheet_names = xls.sheet_names
 
+    # ---- LANDUSE DETAILS (rows 3-11, columns C:D) -----------------------------
+    # Sliced from the already-parsed raw_sheet (0-based: rows 2:11, cols 2:4)
+    # instead of re-reading the workbook. Keeps the field/value label pairs the
+    # Site Summary workflow consumes.
+    _landuse_fields = [
+        "Version_C1", "Landuse_C1", "Texture_C1", "Strata_C1",
+        "Version_C2", "Landuse_C2", "Texture_C2", "Strata_C2",
+    ]
+    _landuse_raw = raw_sheet.iloc[2:11, 2:4].copy()
+    _landuse_raw.columns = ["field", "value"]
+    _landuse_raw["field"] = _landuse_raw["field"].astype(str).str.strip()
+    landuse_details_df = (
+        _landuse_raw[_landuse_raw["field"].isin(_landuse_fields)]
+        .set_index("field")
+        .reindex(_landuse_fields)
+        .reset_index()
+    )
+    ctx.frames["landuse_details_df"] = landuse_details_df
+    # ---- end LANDUSE DETAILS -------------------------------------------------
+
     # C:DH block (absolute columns 2..111); static headers assigned positionally.
     soil_df_full = raw_sheet.iloc[:, 2:112].copy()
     soil_df_full.columns = header_columns
@@ -126,6 +146,17 @@ def load(ctx: Context) -> Context:
     soil_data_filtered = soil_df.rename(columns=excel_header_to_cleaned_name_map)
     soil_data_filtered = soil_data_filtered.where(pd.notna(soil_data_filtered), None)
 
+    # APEC is usually only entered on the top sample row of each borehole, so
+    # deeper samples would otherwise have none. Carry the first non-blank APEC
+    # per borehole (sample_id, in sheet order) down to every sample in that
+    # borehole; boreholes with no APEC anywhere stay blank.
+    _apec_clean = soil_data_filtered["apec"]
+    soil_data_filtered["apec"] = (
+        _apec_clean.groupby(soil_data_filtered["sample_id"]).transform("first")
+        .astype(object)
+        .where(lambda s: s.notna(), None)
+    )
+
     ctx.frames["soil_df"] = soil_df                       # excel headers (as notebook)
     ctx.frames["soil_df_keep_low_detect"] = soil_df_keep_low_detect  # excel headers, '<x' kept
     ctx.frames["soil_data_filtered"] = soil_data_filtered  # cleaned snake_case
@@ -136,6 +167,13 @@ def load(ctx: Context) -> Context:
     ctx.options["sample_ids"] = [
         str(s) for s in soil_data_filtered["sample_id"].dropna().unique()
     ]
+    # Shallowest/deepest sample depths, so the UI can tell the user what range
+    # the topsoil/subsoil depth table must cover.
+    _z = pd.to_numeric(soil_data_filtered["z"], errors="coerce")
+    _z_min = _z.min()
+    _z_max = _z.max()
+    ctx.options["z_min"] = None if pd.isna(_z_min) else float(_z_min)
+    ctx.options["z_max"] = None if pd.isna(_z_max) else float(_z_max)
     return ctx
 
 

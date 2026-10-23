@@ -254,11 +254,11 @@ table.data tbody tr:last-child td { border-bottom: none; }
    ProfileChartPanel component applies .profile-chart-img). */
 .profile-chart-img { max-width: 510px; }
 
-/* Chloride Delineation charts match the Tier 1 graph size. The Tier 1 graphs
-   render 3 per row, so each card is ~1/3 of the row width; cap the Chloride
-   Delineation card at that same width so its image matches the Tier 1 images
-   instead of stretching to the full row. */
-.chart-row .cl-delineation-card {
+/* Every profile chart card (Tier 1, NPP, SST, Chloride Delineation, Texture,
+   95th Percentile) uses the SAME card size as the Tier 1 graphs: capped at
+   ~1/3 of the row width so a lone chart (e.g. NPP) doesn't stretch to the
+   full row. The shared ProfileChartPanel component applies .profile-chart-card. */
+.chart-row .profile-chart-card {
   flex: 1 1 320px;
   min-width: 300px;
   max-width: calc(33.333% - 16px);
@@ -287,17 +287,6 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .profile-chart-axis .field label { font-size: 10.5px; }
 .profile-chart-axis .field .control {
   width: 100%; padding: 3px 6px; font-size: 12px; min-height: 0;
-}
-
-/* SST Chloride profile charts: fixed-size grid so every chart renders at the
-   same size regardless of how many subareas there are. The cards stay a fixed
-   width (no flex-grow stretch) and the portrait PNG is capped, keeping the
-   layout a consistent wrap grid whether there are 1, 2, 3, or 5 subareas. */
-.chart-row .sst-cl-chart-card {
-  flex: 0 0 560px;       /* fixed basis, no grow/shrink */
-  width: 560px;
-  max-width: 560px;
-  min-width: 0;
 }
 
 /* ---------- Forms ---------- */

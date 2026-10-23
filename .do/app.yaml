@@ -1,0 +1,28 @@
+# DigitalOcean App Platform spec for the EBM SST webapp.
+#
+# The repo root IS the app root: the single-container Dockerfile at ./Dockerfile
+# builds the React frontend, installs the Python backend, and serves both from
+# one uvicorn process on the $PORT env var (DO injects PORT=8080 by default).
+#
+# Deploy with the CLI:
+#   doctl apps create --spec .do/app.yaml
+# Or create the app in the dashboard (Apps -> Create App -> GitHub repo ->
+# Build method: Dockerfile -> Source directory: / -> Dockerfile path: Dockerfile).
+name: ebm-sst-webapp
+region: sfo
+services:
+  - name: web
+    github:
+      branch: main
+    deploy_on_push: true
+    repo: sshrinivasan/ebm-sst-webapp
+    # Build method: Dockerfile (the repo root is the build context).
+    dockerfile_path: Dockerfile
+    source_dir: .
+    # DO injects PORT=<http_port>; the Dockerfile CMD binds uvicorn to it.
+    http_port: 8080
+    instance_count: 1
+    # No env vars are required (no DB / API keys). Uploads are ephemeral
+    # (in-memory + /tmp), so no persistent volume is needed.
+    # If the app runs out of memory on large .xlsm files, raise the instance
+    # size to 1GB in the dashboard (Settings -> Resources).

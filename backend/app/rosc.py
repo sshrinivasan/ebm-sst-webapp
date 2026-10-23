@@ -70,7 +70,7 @@ def rosc_exceedances(ctx: Context) -> Context:
         "Subarea": "subarea",
         "APEC": "apec",
     }
-    rosc_grouping_column = ctx.params.get("rosc_grouping_column", "Subarea")
+    rosc_grouping_column = ctx.params.get("rosc_grouping_column", "APEC")
     rosc_group_col = rosc_grouping_column_map.get(rosc_grouping_column, "subarea")
 
     ab_max_exceedances_df = ab_all_exceedances_df.copy()
@@ -116,6 +116,11 @@ def rosc_exceedances(ctx: Context) -> Context:
     ab_max_exceedances_df_display["Parameter"] = ab_max_exceedances_df_display["Parameter"].map(
         lambda v: cleaned_name_to_excel_header_map.get(v, v)
     )
+    # First column holds the row's value of the selected ROSC grouping column
+    # (APEC by default) so the export sheet can show which group each row
+    # represents without extra lookups.
+    _group_display_name = {"apec": "APEC", "subarea": "Subarea"}.get(rosc_group_col, "APEC")
+    ab_max_exceedances_df_display.insert(0, "Grouping", ab_max_exceedances_df_display[_group_display_name])
     ab_max_exceedances_df_display["Date"] = pd.to_datetime(
         ab_max_exceedances_df_display["Date"], errors="coerce"
     ).dt.strftime("%Y-%m-%d")

@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.pipeline import run
+from conftest import EXTENDED_TOPSOIL_DEPTHS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE = FIXTURES / "sample_soil_table.xlsm"
@@ -30,6 +31,9 @@ def _rows(df):
 def test_tier1_exceedances_match():
     # SST OFF: Tier 1 reports the mg/L chloride column (the SST workflow handles
     # mg/kg when enabled), so the reference export is generated with sst_flag off.
-    got = run(str(SAMPLE), {"sheet_name": "Soil Table", "sst_flag": False}).frames["tier1_exceedances_df"]
+    got = run(str(SAMPLE), {
+        "sheet_name": "Soil Table", "sst_flag": False,
+        "topsoil_depths": EXTENDED_TOPSOIL_DEPTHS,
+    }).frames["tier1_exceedances_df"]
     exp = pd.read_csv(EXPECTED)
     assert _rows(got) == _rows(exp)

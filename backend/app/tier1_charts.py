@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 
 import matplotlib
 matplotlib.use("Agg")  # headless: render to buffer, never open a window
@@ -125,18 +126,35 @@ variable_graph_options = [
 
 def plot_profile(colname, df, samples, reference_lines=None, title=None, reference_label="Guideline",
                  reference_color=None, x_max=None, y_max=None, xlabel=None, depth_line=1.5,
-                 depth_line_label=None, min_points_for_spline=1, ax=None):
+                 depth_line_label=None, min_points_for_spline=1, ax=None, legend_inside=True,
+                 figsize=(4, 7.5)):
     """Render one vertical depth profile (a single plot in a panel).
 
     Plots ``colname`` vs depth (z) for each sample in ``samples``, with optional
     reference lines, a horizontal depth line, and x/y axis limits. When ``ax`` is
     provided the profile is drawn into that existing axes (for multi-panel
     composition); otherwise a new figure is created and returned.
+
+    Every profile renders on a FIXED canvas (serialize with ``tight=False``) with
+    the legend drawn INSIDE a reserved bottom strip, so all profile charts export
+    at the identical pixel size regardless of how many samples (and thus legend
+    rows) the chart has. ``legend_inside=False`` keeps the old behavior: the
+    legend is anchored below the figure and the canvas is tight-cropped to
+    include it.
+
+    ``figsize`` (default (4, 7.5)) sets the figure size in inches: the axes
+    occupies the top 80% (4x6, matching the Tier 1 profile size) and the bottom
+    20% is the legend strip.
     """
     xlabel = xlabel or cleaned_name_to_excel_header_map.get(colname, colname)
     own_figure = ax is None
     if own_figure:
-        fig, ax = plt.subplots(figsize=(4, 6), facecolor='white')
+        fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+        if legend_inside:
+            # Reserve the bottom 20% of the fixed canvas for the legend so it
+            # stays INSIDE the canvas (tight=False renders don't crop to the
+            # drawn content, so a below-figure legend would be clipped).
+            fig.subplots_adjust(bottom=0.20)
     else:
         fig = ax.figure
     ax.set_facecolor('white')
@@ -217,18 +235,48 @@ def plot_profile(colname, df, samples, reference_lines=None, title=None, referen
         ax.axhline(y=depth_line, color='black', linestyle='--', linewidth=2, zorder=5,
                    label=depth_line_label)
     if own_figure:
-        plt.tight_layout()
-        fig.legend(loc='upper left', bbox_to_anchor=(0, 0), ncol=4, frameon=False)
+        if legend_inside:
+            # Keep the axes above the reserved bottom strip and anchor the
+            # legend's top just below the axes so it reads like the Tier 1
+            # profiles (legend directly under the plot, never clipped).
+            fig.tight_layout(rect=[0, 0.20, 1, 1])
+            fig.legend(loc='upper left', bbox_to_anchor=(0, 0.20), ncol=4, frameon=False)
+        else:
+            plt.tight_layout()
+            fig.legend(loc='upper left', bbox_to_anchor=(0, 0), ncol=4, frameon=False)
     return fig
 
 
-def _fig_to_data_uri(fig) -> str:
-    """Serialize a matplotlib figure to a base64 PNG data URI and close it."""
+def _fig_to_data_uri(fig, tight: bool = False) -> str:
+    """Serialize a matplotlib figure to a base64 PNG data URI and close it.
+
+    ``tight`` (default False) keeps a FIXED canvas (figure size x dpi) so every
+    profile chart exports at the identical pixel size regardless of series/legend
+    content. Set ``tight=True`` to crop the canvas to the drawn content instead.
+    """
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight" if tight else None)
     plt.close(fig)
     buf.seek(0)
     return "data:image/png;base64," + base64.b64encode(buf.read()).decode("ascii")
+
+
+def _sanitize_filename(name: str) -> str:
+    """Replace characters that aren't allowed in filenames with '_'."""
+    return re.sub(r'[\\/:*?"<>|]', "_", name)
+
+
+def _store_figure(fig, ctx: Context, chart_key: str, zip_path: str | None = None) -> None:
+    """Store a figure for the app (``ctx.charts``) and, when ``zip_path`` is
+    given, for the figures ZIP (``ctx.exports['figure_files']``) at 150 dpi /
+    tight bounding box / white background per the export spec. The export PNG is
+    saved BEFORE ``_fig_to_data_uri`` closes the figure."""
+    if zip_path:
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+        buf.seek(0)
+        ctx.exports.setdefault("figure_files", {})[zip_path] = buf.getvalue()
+    ctx.charts[chart_key] = _fig_to_data_uri(fig)
 
 
 def tier1_charts(ctx: Context) -> Context:
@@ -242,9 +290,19 @@ def tier1_charts(ctx: Context) -> Context:
     ab_tier1_chloride_ref_value = 120
 
     scarg = ctx.frames["scarg_guidelines_df"]
-    # EC and SAR guidelines are depth-dependent (one segment per SCARG depth band).
-    ab_scarg_ec_ref_lines = [(row["Depth"], float(row["EC Guideline"])) for _, row in scarg.iterrows()]
-    ab_scarg_sar_ref_lines = [(row["Depth"], float(row["SAR Guideline"])) for _, row in scarg.iterrows()]
+    # EC and SAR guidelines are depth-dependent (one segment per SCARG depth
+    # band). Reference lines always use the plain "top-bottom" interval so the
+    # plotter's split("-") parsing stays safe even for default-labelled rows
+    # (e.g. "subsoil 1.5-6.0 (default)").
+    ab_scarg_ec_ref_lines = []
+    ab_scarg_sar_ref_lines = []
+    for _, row in scarg.iterrows():
+        _bounds = _scarg_depth_bounds(row["Depth"])
+        if _bounds is None:
+            continue
+        _ref_depth = "{0:g}-{1:g}".format(_bounds[0], _bounds[1])
+        ab_scarg_ec_ref_lines.append((_ref_depth, float(row["EC Guideline"])))
+        ab_scarg_sar_ref_lines.append((_ref_depth, float(row["SAR Guideline"])))
 
     # Chloride Tier 1 is a single flat value; express it as one segment spanning
     # the full plotted depth range so plot_profile draws it as a vertical line.
@@ -265,12 +323,23 @@ def tier1_charts(ctx: Context) -> Context:
                           reference_lines=[ab_tier1_chloride_ref_lines], title="Chloride",
                           x_max=ctx.params.get("tier1_cl_x_max"), y_max=ctx.params.get("tier1_cl_y_max"))
 
-    ctx.charts["tier1_graph_ec"] = _fig_to_data_uri(fig_ec)
-    ctx.charts["tier1_graph_sar"] = _fig_to_data_uri(fig_sar)
-    ctx.charts["tier1_graph_chloride"] = _fig_to_data_uri(fig_cl)
+    _store_figure(fig_ec, ctx, "tier1_graph_ec", "TIER1_GRAPHS/t1_ec.png")
+    _store_figure(fig_sar, ctx, "tier1_graph_sar", "TIER1_GRAPHS/t1_sar.png")
+    _store_figure(fig_cl, ctx, "tier1_graph_chloride", "TIER1_GRAPHS/t1_cl.png")
     return ctx
 
     
+def _scarg_depth_bounds(text):
+    """(top, bottom) numeric bounds of a SCARG Depth value (plain or labelled)."""
+    numbers = re.findall(r"\d+(?:\.\d+)?", str(text))
+    if len(numbers) >= 2:
+        try:
+            return float(numbers[0]), float(numbers[1])
+        except ValueError:
+            pass
+    return None
+
+
 def _limiting_ref(colname, z_max, limiting_df):
     """Build full-depth reference lines/labels from limiting_df (pH has two bounds)."""
     if colname not in limiting_df.columns:
@@ -328,5 +397,7 @@ def tier1_variable_charts(ctx: Context) -> Context:
                            reference_lines=_lines, reference_label=_labels or "Guideline",
                            reference_color="red", title=_var,
                            x_max=ctx.params.get(_xmax_key), y_max=ctx.params.get(_ymax_key))
-        ctx.charts[_chart_key] = _fig_to_data_uri(fig)
+        # ZIP file named after the parameter's display name with illegal
+        # filename characters replaced by "_" (e.g. "Sulphate (mg_L).png").
+        _store_figure(fig, ctx, _chart_key, f"TIER1_GRAPHS/{_sanitize_filename(_var)}.png")
     return ctx

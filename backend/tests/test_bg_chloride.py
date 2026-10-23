@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.pipeline import run
+from conftest import EXTENDED_TOPSOIL_DEPTHS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE = FIXTURES / "sample_soil_table.xlsm"
@@ -32,7 +33,7 @@ def _cell_eq(a, b) -> bool:
 
 
 def test_bg_chloride_df_matches_hex():
-    got = run(str(SAMPLE), {"sheet_name": "Soil Table"}).frames["bg_chloride_df"].reset_index(drop=True)
+    got = run(str(SAMPLE), {"sheet_name": "Soil Table", "topsoil_depths": EXTENDED_TOPSOIL_DEPTHS}).frames["bg_chloride_df"].reset_index(drop=True)
     exp = pd.read_csv(EXPECTED)
     assert list(got.columns) == list(exp.columns)
     assert got.shape == exp.shape

@@ -1,8 +1,26 @@
+import re
+
 from .context import Context, InputValidationError
 import pandas as pd
 from .loader import (
     cleaned_name_to_excel_header_map,
 )
+
+
+def _scarg_depth_bounds(text):
+    """(top, bottom) numeric bounds of a SCARG Depth value.
+
+    Accepts the plain interval ("0.0-0.3") or a labelled default row
+    ("subsoil 1.5-6.0 (default)"); None when no numeric pair is found.
+    Depths are non-negative, so the separator hyphen is never a sign.
+    """
+    numbers = re.findall(r"\d+(?:\.\d+)?", str(text))
+    if len(numbers) >= 2:
+        try:
+            return float(numbers[0]), float(numbers[1])
+        except ValueError:
+            pass
+    return None
 
 tier1_exceedance_output_columns = {
     "media": "Media",
@@ -196,19 +214,33 @@ def chemical_group_columns_maps(ctx: Context) -> Context:
 
 def _build_scarg_exceedances(guidelines, df):
     rows = []
+    # The deepest interval includes its bottom (top <= z <= bottom), matching
+    # compute_scarg_guidelines, so a sample sitting exactly on the deepest
+    # bottom is still checked against that band's guideline (and is not silently
+    # dropped from Tier 1 exceedance reporting).
+    _bounds = [_scarg_depth_bounds(row["Depth"]) for _, row in guidelines.iterrows()]
+    _deepest_max = max((b[1] for b in _bounds if b is not None), default=None)
+
     for _, row in guidelines.iterrows():
-        depth_min, depth_max = (float(p) for p in str(row["Depth"]).split("-"))
+        # Depth is a plain interval ("0.0-0.3") or a labelled default row
+        # ("subsoil 1.5-6.0 (default)") — extract the numeric bounds either way.
+        bounds = _scarg_depth_bounds(row["Depth"])
+        if bounds is None:
+            continue
+        depth_min, depth_max = bounds
         ec_guideline = float(row["EC Guideline"])
         sar_guideline = float(row["SAR Guideline"])
 
-        # TODO: Handle the boundary case.
+        is_deepest = _deepest_max is not None and abs(depth_max - _deepest_max) < 1e-9
+        z_mask = df["z"] <= depth_max if is_deepest else df["z"] < depth_max
+
         for param, guideline in (
             ("general_inorganics_ec_ds_m", ec_guideline),
             ("general_inorganics_sar", sar_guideline),
         ):
             mask = (
                 (df["z"] >= depth_min)
-                & (df["z"] < depth_max)
+                & z_mask
                 & (df[param] > guideline)
             )
             exceeded = df[mask].copy()
