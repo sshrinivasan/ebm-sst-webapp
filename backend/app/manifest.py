@@ -149,37 +149,15 @@ SST_PARAMS = {
     "p95_x_max", "p95_y_max",
 }
 
-# Tabs that belong to the Surfer analysis (always Tier-1 style, i.e. run
-# WITHOUT the site-specific workflow). The gating here is the mirror image of
-# the SST sets: when sst_flag is ON (SST enabled), the Surfer tab is removed
-# from the schema; when sst_flag is OFF, it is shown.
-SURFER_TABS = {"surfer"}
-
-# Params that belong to the Surfer analysis (see SURFER_TABS).
-SURFER_PARAMS = {
-    "surfer_bh_classification",
-    "bh_cutoff_date",
-    "surfer_parameter_group",
-    "surfer_parameter_group_depths",
-    "surfer_standard_figure_depths",
-    "surfer_include_left",
-    "surfer_include_right",
-}
-
-# Outputs that belong to the Surfer analysis (see SURFER_TABS). Hidden
-# alongside the Surfer tab when sst_flag is True.
-SURFER_OUTPUTS = {"surfer_output"}
-
-
 def build_schema(sst_flag: bool = True) -> dict:
     """Build the presentation schema, optionally filtering out the SST analysis.
 
     When ``sst_flag`` is False, the SST tabs, outputs, charts, dynamic entries,
     and params are removed so the frontend hides them entirely. The Exceedances
     tab keeps Tier 1 (tier1_exceedances) — only the Site-Specific table is
-    removed. Conversely, the Surfer tab and its params are treated as
-    non-SST (Tier-1 style): they are removed when ``sst_flag`` is True and kept
-    when it is False.
+    removed. The Surfer tab is available in BOTH modes (it consumes the SST
+    site-specific exceedances when SST is enabled, the Tier-1 site-specific
+    frame otherwise).
     """
     # example = default so the frontend prefills the control.
     inputs = []
@@ -198,16 +176,13 @@ def build_schema(sst_flag: bool = True) -> dict:
         inputs.append(inp)
 
     if sst_flag:
-        # SST enabled: hide the Surfer (non-SST) tab, its params, and its
-        # outputs.
-        nav = [n for n in NAV if n["id"] not in SURFER_TABS]
-        inputs = [i for i in inputs if i["name"] not in SURFER_PARAMS]
-        outputs = [o for o in OUTPUTS if o["var"] not in SURFER_OUTPUTS]
+        # SST enabled: the Surfer tab is available in BOTH modes, so nothing is
+        # removed here (the SST sets below only apply when sst_flag is False).
         return {
-            "nav": nav,
-            "tabs": _leaves(nav),
+            "nav": NAV,
+            "tabs": _leaves(NAV),
             "inputs": inputs,
-            "outputs": outputs,
+            "outputs": OUTPUTS,
             "charts": CHARTS,
             "dynamic_outputs": DYNAMIC_OUTPUTS,
             "dynamic_charts": DYNAMIC_CHARTS,

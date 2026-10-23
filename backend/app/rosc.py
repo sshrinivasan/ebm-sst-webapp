@@ -58,13 +58,13 @@ def rosc_exceedances(ctx: Context) -> Context:
     # normalize it to the shared name before the output column map below.
     sst_enabled = bool(ctx.params.get("sst_flag", True))
     sst_source = False
-    if sst_enabled and "all_exceedances_df" in ctx.frames:
+    if sst_enabled and "site_specific_sst_exceedances_df" in ctx.frames:
         sst_source = True
-        ab_all_exceedances_df = ctx.frames["all_exceedances_df"]
-        if "tier1_bg" in ab_all_exceedances_df.columns and "tier1_bg_guideline" not in ab_all_exceedances_df.columns:
-            ab_all_exceedances_df = ab_all_exceedances_df.rename(columns={"tier1_bg": "tier1_bg_guideline"})
+        ab_site_specific_sst_exceedances_df = ctx.frames["site_specific_sst_exceedances_df"]
+        if "tier1_bg" in ab_site_specific_sst_exceedances_df.columns and "tier1_bg_guideline" not in ab_site_specific_sst_exceedances_df.columns:
+            ab_site_specific_sst_exceedances_df = ab_site_specific_sst_exceedances_df.rename(columns={"tier1_bg": "tier1_bg_guideline"})
     else:
-        ab_all_exceedances_df = ctx.frames["tier1_exceedances_df"]
+        ab_site_specific_sst_exceedances_df = ctx.frames["tier1_exceedances_df"]
     # Group by the user-selected ROSC grouping column and then parameter to find the maximum per group
     rosc_grouping_column_map = {
         "Subarea": "subarea",
@@ -73,7 +73,7 @@ def rosc_exceedances(ctx: Context) -> Context:
     rosc_grouping_column = ctx.params.get("rosc_grouping_column", "APEC")
     rosc_group_col = rosc_grouping_column_map.get(rosc_grouping_column, "subarea")
 
-    ab_max_exceedances_df = ab_all_exceedances_df.copy()
+    ab_max_exceedances_df = ab_site_specific_sst_exceedances_df.copy()
     _group_values = ab_max_exceedances_df[rosc_group_col]
     _blank_mask = (
         _group_values.isna()

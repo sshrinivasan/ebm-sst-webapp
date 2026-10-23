@@ -108,7 +108,7 @@ def check_data_availability(chemical_group_to_columns_map, analytical_df, catego
 
     return True
 
-# ab_all_exceedances_df = Tier 1 exceedances
+# ab_site_specific_sst_exceedances_df = Tier 1 exceedances
 # ab_site_specific_exceedances_df_display = SS exceedances
 # Tier 1 Salinity categories:
 # 1 = All samples pass Tier 1
@@ -286,7 +286,12 @@ def surfer_routine_output(ctx: Context) -> Context:
     surfer_parameter_depths = ctx.frames["surfer_parameter_group_depths"]
     surfer_chemical_depths = ctx.frames["surfer_standard_figure_depths"]
     tier1_exceedance_df = ctx.frames["tier1_exceedances_df"]
-    site_specific_exceedance_df = ctx.frames["site_specific_tier1_exceedances_df"]
+    # Under SST the site-specific exceedances come from the SST workflow
+    # (site_specific_sst_exceedances_df), which reflects SST Chloride-replaces-EC and NPP
+    # suppression; otherwise fall back to the Tier-1 site-specific frame.
+    site_specific_exceedance_df = ctx.frames.get("site_specific_sst_exceedances_df")
+    if site_specific_exceedance_df is None:
+        site_specific_exceedance_df = ctx.frames["site_specific_tier1_exceedances_df"]
     tier1_bg_df = ctx.frames["tier1_bg_df"]
 
     surfer_parameter_col = display_name_to_cleaned_name_map.get(surfer_parameter_group, surfer_parameter_group)

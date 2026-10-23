@@ -130,7 +130,7 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ctx = npp_sulphate_tests(ctx)
         ctx = sst_exceedances(ctx)
     # ROSC runs after the SST block so it can use the Site-Specific exceedances
-    # (all_exceedances_df) when SST is enabled, falling back to Tier 1 otherwise.
+    # (site_specific_sst_exceedances_df) when SST is enabled, falling back to Tier 1 otherwise.
     ctx = rosc_exceedances(ctx)
     ctx = tier1_charts(ctx)
     ctx = tier1_variable_charts(ctx)
@@ -145,10 +145,10 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ctx = seed_sst_chloride(ctx)
         ctx = sst_chloride_charts(ctx)
 
-    # Surfer analysis is the mirror image of SST: it runs only when SST is off
-    # (matches the schema gating in manifest.build_schema).
-    if not sst_enabled:
-        ctx = surfer_routine_output(ctx)
+    # Surfer analysis runs for BOTH SST and non-SST sites. Under SST it consumes
+    # the SST site-specific exceedances (site_specific_sst_exceedances_df); otherwise it falls
+    # back to the Tier-1 site-specific frame (see surfer.py).
+    ctx = surfer_routine_output(ctx)
 
     # future: ctx = texture_split(ctx); ...
 
@@ -173,7 +173,7 @@ def run(excel_path: str, params: dict | None = None) -> Context:
         ("tier1_exceedances_display_df", "tier1_exceedances"),
         ("justified_exceedances_display_df", "justified_exceedances"),
         ("site_specific_tier1_exceedances_display_df", "site_specific_tier1_exceedances"),
-        ("all_exceedances_display_df", "site_specific_exceedances"),
+        ("site_specific_sst_exceedances_display_df", "site_specific_exceedances"),
         ("max_exceedances_per_subarea_df", "max_exceedances_per_subarea"),
         ("tier1_shallow_param_summary", "tier1_shallow_param_summary"),
         ("tier1_deep_param_summary", "tier1_deep_param_summary"),

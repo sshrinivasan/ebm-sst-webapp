@@ -201,7 +201,7 @@ def build_tier1_exceedances_export(ctx: Context) -> pd.DataFrame | None:
 def build_site_specific_exceedances_export(ctx: Context) -> pd.DataFrame | None:
     """Site-Specific Exceedances sheet: reference columns, Tier 1 w BG last."""
     base = _first_present(
-        ctx.frames.get("all_exceedances_display_df"),
+        ctx.frames.get("site_specific_sst_exceedances_display_df"),
         ctx.frames.get("site_specific_tier1_exceedances_display_df"),
     )
     if base is None or base.empty:
